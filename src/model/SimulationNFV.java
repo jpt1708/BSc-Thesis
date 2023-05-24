@@ -16,7 +16,7 @@ import simenv.SimulatorConstants;
  * This class is the instantiation of a simulation. It is defined by a set
  * of requests, a substrate and an algorithm
  */
-public class SimulationNFV {
+public class SimulationNFV implements Cloneable {
 	
 	private String id;
 	private Substrate InPs;
@@ -54,6 +54,12 @@ public class SimulationNFV {
     	
     	
     }
+
+	public Object getCopy(int n) {
+		SimulationNFV s = new SimulationNFV(this.InPs, this.substrates, this.requests, this.algorithm, this.NFs);
+		s.setId(this.getId() + "_copy_" + Integer.toString(n));
+		return s;
+	}
     
     public Substrate getInPs(){
     	return this.InPs;
@@ -260,5 +266,9 @@ public class SimulationNFV {
 			
 		}//link iter
 		
+	}
+
+	public Object clone() throws CloneNotSupportedException{
+		return super.clone();
 	}
 }

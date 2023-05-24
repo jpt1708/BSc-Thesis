@@ -60,9 +60,13 @@ public class Request extends Network implements Serializable {
     }  
     
     public void setTS(ArrayList<Integer> reqTS) {
-    	this.ts = reqTS;    	
+    	this.ts = reqTS;
     }
-    
+
+	public ArrayList<Integer>  getTS() {
+    	return this.ts;	
+    }
+
 	public String getDomain() {
 		return domain;
 	}
@@ -193,10 +197,6 @@ public class Request extends Network implements Serializable {
 
 		return reqNodes;
 	}
-	
-   public ArrayList<Integer>  getTS() {
-    	return this.ts;	
-    }
 
 	public double getTotalBw() {
 		double bw = 0;

@@ -2923,6 +2923,9 @@ public class AlgorithmNF {
             writer = new BufferedWriter(new FileWriter(path+File.separator+filename));
             String filename1 = "requests_"+this.id+"_"+ + name +".txt";
             writer1 = new BufferedWriter(new FileWriter(path+File.separator+filename1));
+            System.out.println("Filenames:");
+            System.out.println(path+File.separator+filename);
+            System.out.println(path+File.separator+filename1);
 
 
 
@@ -3268,7 +3271,7 @@ public class AlgorithmNF {
 
 
         } catch (IOException ex) {
-            // report
+            ex.printStackTrace();
         } finally {
             try {writer.close(); writer1.close();}
             catch (Exception ex) {
