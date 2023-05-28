@@ -17,7 +17,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 import java.util.Set;
-import java.util.HashMap;
 
 import model.*;
 import org.apache.commons.collections15.Factory;
@@ -29,7 +28,6 @@ import org.apache.poi.ss.usermodel.IndexedColors;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.sqlite.SQLiteConfig.LockingMode;
 
 import cern.jet.random.Exponential;
 import cern.jet.random.engine.MersenneTwister;
@@ -48,7 +46,7 @@ import model.components.Node;
 import monitoring.Monitor;
 import simenv.SimulatorConstants;
 
-public class MainWithoutGUI{
+public class MainWithoutGUI_old{
     static ArrayList<Node> sRRHs = new  ArrayList<Node>();
     static ArrayList<Node> sIXPs = null;
     static ArrayList<Node> NFs = null;
@@ -64,9 +62,6 @@ public class MainWithoutGUI{
             "Violations", "Avg Time PR", "Violation Ratio", "Rejection Ratio", "Non Collocated", "Collocated",
             "Accepted", "Rejected", "Violations Monitoring", "Monitoring Instances", "SFC Nodes", "SFC Links",
             "Total SFC Workload", "Total SFC Bandwidth"};
-
-
-
     public static void main(String[] args) throws CloneNotSupportedException {
         int n_dcs = 3; // # of datacenters to simulate
         int numRequests = 3; // # of requests to simulate
@@ -215,81 +210,298 @@ public class MainWithoutGUI{
     private static double[] launchSimulation(Orchestrator orchestrator) throws Exception{
         //results, 0 cost, 1 time, 2, denial
         double[] results=new double[3];
-        ////int denials = 0;
-        ////double cost=0;
-        ////double cpuCost=0;
-        ////double bwCost=0;
-        ////double revenue=0;
-        ////double cpu_util = 0;
-        ////double bw_util=0;
-        ////double sol_time=0;
-        ////double max_util_server=0;
-        ////double max_util_link=0;
-        ////int requested= 0;
-        ////int viol_cpu = 0;  //requests violating their SLAs
-        ////int viol_cpu_mon=0; //monitoring violations
-        ////int mon_instances=0; //cum  monitoring instances
-        ////int collocated=0;
+        int denials = 0;
+        double cost=0;
+        double cpuCost=0;
+        double bwCost=0;
+        double revenue=0;
+        double cpu_util = 0;
+        double bw_util=0;
+        double sol_time=0;
+        double max_util_server=0;
+        double max_util_link=0;
+        int requested= 0;
+        int viol_cpu = 0;  //requests violating their SLAs
+        int viol_cpu_mon=0; //monitoring violations
+        int mon_instances=0; //cum  monitoring instances
+        int collocated=0;
 
-        
-        /*    if (monitoring) {
-            monAgent.generateMInstances(simulationTime);
-            m_ts  = monAgent.getTS();
-        }*/
-
-        List<Thread> DC_threads = new ArrayList<Thread>();
-        for (SimulationNFV cur_dc : orchestrator.getDCs()) {
-            Thread cur_dc_thread = new Thread(cur_dc);
-            DC_threads.add(cur_dc_thread);
-            System.out.println("------ Starting thread for DC " + cur_dc.getId());
-            cur_dc_thread.start();
-        }
-
-        int simulationEndTime = (int)orchestrator.getEndDate() + 10000;
-        System.out.println("simulationEndTime: " + simulationEndTime);
-        //// MAIN SIMULATION LOOP
-        for (int curSimTime=0; curSimTime < (simulationEndTime+10); curSimTime++) {
-            List<Request> startingRequests = orchestrator.getStartingRequests(curSimTime);
-            HashMap<Integer, ArrayList<Request>> req_mapping = orchestrator.orchestrate(startingRequests, curSimTime);
-            if (startingRequests.size() > 0) {
-                System.out.println("------Simulator timestep " + curSimTime + " -- " + startingRequests.size() + " Requests");
-                for (int i = 0; i < orchestrator.n_dcs; i++) {
-                    System.out.println("DC " + orchestrator.getDCs().get(i).getId() + " gets " + req_mapping.get(i).size() + " requests");
-                }
-            }
-            for (int i = 0; i < orchestrator.n_dcs; i++) {
-                synchronized (orchestrator.getLocks().get(i)) {
-                    orchestrator.getDCs().get(i).setToEmbed(req_mapping.get(i));
-                    orchestrator.getDCs().get(i).go();
-                    orchestrator.getLocks().get(i).notify();
-                }
-            }
-
-            for (int i = 0; i < orchestrator.n_dcs; i++) {
-                synchronized (orchestrator.getLocks().get(i)) {
-                    while (orchestrator.getDCs().get(i).ready)
-                        orchestrator.getLocks().get(i).wait();
-                }
-            }
-        }//end of simulation
-
-        for (int i = 0; i < orchestrator.n_dcs; i++) {
-            synchronized (orchestrator.getLocks().get(i)) {
-                orchestrator.getDCs().get(i).setToEmbed(null);
-                orchestrator.getDCs().get(i).go();
-                orchestrator.getLocks().get(i).notify();
-            }
-        }
         try {
-            System.out.println("Simulation over");
-            for (int i = 0; i < orchestrator.n_dcs; i++) {
-                System.out.println("Joining thread " + i);
-                DC_threads.get(i).join();
-            }
-        } catch (InterruptedException e) {
-            // TODO: handle exception
-        }
+            Writer writer=null;
+            Writer writer2=null;
+            String path = "results";
 
+            new File(path).mkdirs();
+            //  String filename = "input"+ orchestrator.getDCs().get(0).getAlgorithm().getId()+ "-" + "TMP" + ".xlsx";
+            String AlgId = "Orchestrator";
+            String filename = "input"+ AlgId + "-" + 1 + ".xlsx";
+            System.out.println(filename);
+            if (AlgId.contains("RL")) {
+                String filename1 = AlgId + "_AD.txt";
+                writer = new BufferedWriter(new FileWriter(path+File.separator+filename1));
+                writer = new NullWriter();
+                String filename2 = AlgId + "_Memory.txt";
+                writer2 = new BufferedWriter(new FileWriter(path+File.separator+filename2));
+                writer2 = new NullWriter();
+            }
+
+
+            FileOutputStream fileOut = new FileOutputStream(path+File.separator+filename);
+            XSSFWorkbook workbook = new XSSFWorkbook();
+            XSSFSheet s = workbook.createSheet("Sheet1");
+            Font headerFont = workbook.createFont();
+            headerFont.setBold(true);
+            headerFont.setFontHeightInPoints((short) 14);
+            headerFont.setColor(IndexedColors.RED.getIndex());
+
+            CellStyle headerCellStyle = workbook.createCellStyle();
+            headerCellStyle.setFont(headerFont);
+
+            Row headerRow = s.createRow(0);
+            for (int i = 0; i < columns.length; i++) {
+                Cell cell = headerRow.createCell(i);
+                cell.setCellValue(columns[i]);
+                cell.setCellStyle(headerCellStyle);
+            }
+
+            int simulationTime = (int)orchestrator.getEndDate() +10000;
+            System.out.println(simulationTime);
+
+            // add server columns
+            int headerCellIndex = columns.length;
+            // Same as before, but for each datacenter's substrate -> all nodes that aren't switches
+            for (SimulationNFV cur_dc : orchestrator.getDCs()) {
+                for (Node current : cur_dc.getSubstrates().get(0).getGraph().getVertices()) {
+                    if (!(current.getType().equalsIgnoreCase("Switch"))) {
+                        Cell cell = headerRow.createCell(headerCellIndex);
+                        cell.setCellValue("node_" + current.getId() + "_available_cpu");
+                        cell.setCellStyle(headerCellStyle);
+
+                        Cell cell2 = headerRow.createCell(headerCellIndex + 1);
+                        cell2.setCellValue("node_" + current.getId() + "_avg_life");
+                        cell2.setCellStyle(headerCellStyle);
+                        headerCellIndex += 2;
+                    }
+                }
+            }
+
+            //Substrate InPs = simulation.getInPs(); - now defined per DC
+            //AlgorithmNF algorithm = simulation.getAlgorithm(); - now defined per DC
+            List<Request> endingRequests;// - Requests go to orchestrator, it forwards copies to each DC
+            List<Request> startingRequests;// - Requests go to orchestrator, it forwards copies to each DC
+            List<Request> updatedRequests;// - Requests go to orchestrator, it forwards copies to each DC
+            // algorithm needs to be moved to SimulationNFV
+            String currentReq = "none";
+            Double reward =  0.0;
+            ArrayList<Integer> m_ts  = new ArrayList<Integer>();
+            Monitor monAgent =  new Monitor();
+            ArrayList<Request> embedded = new ArrayList<Request>();
+
+	  /*    if (monitoring) {
+	      monAgent.generateMInstances(simulationTime);
+	      m_ts  = monAgent.getTS();
+	      }*/
+
+            int counter2=0;
+            //// MAIN SIMULATION LOOP
+            for (int i=0; i<(simulationTime+10); i++) {
+                for (SimulationNFV cur_dc : orchestrator.getDCs()) {
+                    //System.out.println("Monitoring Moment: " + i );
+                    // Release ended simulations in the moment "i"
+                    AlgorithmNF cur_dc_algorithm = cur_dc.getAlgorithm();
+                    List<Substrate> cur_dc_substrates = cur_dc.getSubstrates();
+                    endingRequests = orchestrator.getEndingRequests(i);
+                    cur_dc.releaseRequests(endingRequests,i);
+                    for (Request endReq:endingRequests){  ///remove from embedded
+                        embedded.remove(endReq);
+                    }
+                    // Allocate arriving requests in the moment "i"
+                    startingRequests = orchestrator.getStartingRequests(i);
+                    cur_dc_algorithm.addRequests(startingRequests);
+                    cur_dc_algorithm.addMAgent(monAgent);
+//                    if (algorithm.getId().contains("max") || algorithm.getId().contains("avg") ) {
+//                        for(Request upReq: startingRequests){
+//                            upReq.getDFG().resetGraph(upReq.getGraph(),algorithm.getId());
+//                        }
+//                    }
+                    if (dynamic) {
+                        updatedRequests = orchestrator.getUpdatedRequests(i);
+
+                        if (updatedRequests.size()>0){
+                            //System.out.println("updatedRequests: " +updatedRequests.size());
+
+                            cur_dc.releaseRequests(updatedRequests,i);
+                            for(Request upReq: updatedRequests){
+                                //upReq.print();
+                                if (!(upReq.getRMapNF().isDenied())) {
+                                    upReq.getDFG().updateGraph(upReq.getGraph(), i, simulationTime, false);
+                                }
+                                //upReq.print();
+
+                            }
+                            cur_dc.updateRequests(updatedRequests,i);
+                        }
+
+                    }
+                    //////////////////////////////////
+                    if (monitoring) {
+                        //if (m_ts.contains(i)) {
+                        mon_instances++;
+                        //System.out.println("Monitoring Moment: " + i );
+                        if (!(currentReq.equalsIgnoreCase(monAgent.getRequestID()))) {
+                            reward=0.0;
+                        }
+                        boolean overSubscription = false;
+                        Collection<Node> tmp_nodes = cur_dc_substrates.get(0).getGraph().getVertices();
+                        Iterator<Node> iterator = tmp_nodes.iterator();
+
+                        // while loop
+                        while (iterator.hasNext()) {
+                            Node current = iterator.next();
+                            if (!(current.getType().equalsIgnoreCase("Switch"))) {
+                                //	double util = current.getAvailableCpu()/(current.getCpu()+Double.MIN_VALUE);
+                                //System.out.println("Monitoring util: " + util );
+                                //	if (util<0.1) {
+                                if (current.getAvailableCpu()<0) {
+                                    overSubscription=true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (overSubscription) {
+                            reward=reward-0.1;
+                            viol_cpu_mon++;
+                            //System.out.println(currentReq + " " + monAgent.getRequestID() + " " +reward);
+                        }
+
+                        monAgent.setRequestID(currentReq);
+                        monAgent.setPenalty(reward);
+                        //System.out.println(currentReq + " " + monAgent.getRequestID() + " " +monAgent.getPernalty());
+
+                        //}
+                    }
+
+
+                    if (startingRequests.size()>0){
+                        //System.out.println("startingRequests: " +startingRequests.size());
+
+                        boolean ret = cur_dc_algorithm.runAlgorithm(embedded,i);
+                        if (!ret)
+                            throw new Exception("Algorithm error");
+
+
+                        for (Request req:startingRequests) {
+                            currentReq = req.getId();
+
+
+                            System.out.println("Taking results");
+                            requested++;
+                            if (req.getRMapNF().isDenied() ){
+                                denials++;
+                            }else{
+                                embedded.add(req);
+                                revenue += req.getRMapNF().getEmbeddingRevenue();
+                                cost += req.getRMapNF().getEmbeddingCost();
+                                cpuCost+= req.getRMapNF().getCPUCost();
+                                bwCost += req.getRMapNF().getBWCost();
+                                sol_time += req.getRMapNF().getSolTime();
+                                //avg_hops += req.getRMapNF().getHops();
+
+                                if (req.getRMapNF().getOverpCPU()) {
+                                    viol_cpu++;
+                                }
+                                if (!(req.getRMapNF().getServersUsed()>1)) {
+                                    collocated++;
+                                }
+
+                                ///////////////////////////////////
+                                cpu_util = req.getRMapNF().Node_utilization_Server_Cpu(cur_dc_substrates.get(0));
+                                bw_util = req.getRMapNF().Link_utilization(cur_dc_substrates.get(0));
+                                max_util_server = req.getRMapNF().max_util_server(cur_dc_substrates.get(0));
+                                max_util_link =  req.getRMapNF().max_link_utilization(cur_dc_substrates.get(0));
+
+                                /*	System.out.println(revenue+ " " +cost+ " " +avg_hops+" "+rules + " "+requested+ " "+denials);
+                                 */
+                            }
+                            counter2++;
+                            Row row = s.createRow(counter2);
+                            row.createCell(0).setCellValue(i);
+                            row.createCell(1).setCellValue((double)(requested-denials)/(double)requested);
+                            row.createCell(2).setCellValue(revenue);
+                            row.createCell(3).setCellValue(cost);
+                            row.createCell(4).setCellValue(cpuCost);
+                            row.createCell(5).setCellValue(bwCost);
+                            row.createCell(6).setCellValue(cpu_util);
+                            row.createCell(7).setCellValue(bw_util);
+                            row.createCell(8).setCellValue(max_util_server/cpu_util);
+                            row.createCell(9).setCellValue(max_util_link/bw_util);
+                            row.createCell(10).setCellValue(viol_cpu);
+                            row.createCell(11).setCellValue(sol_time/(double)requested);
+                            row.createCell(12).setCellValue(viol_cpu/(double)requested);
+                            row.createCell(13).setCellValue((double)(denials)/(double)requested);
+                            row.createCell(14).setCellValue((double)(requested-denials-collocated));
+                            row.createCell(15).setCellValue((double)(collocated));
+                            row.createCell(16).setCellValue((double)(requested-denials));
+                            row.createCell(17).setCellValue((double)(denials));
+                            row.createCell(18).setCellValue((double)viol_cpu_mon);
+                            row.createCell(19).setCellValue((double)mon_instances);
+                            row.createCell(20).setCellValue(req.getGraph().getVertexCount());
+                            row.createCell(21).setCellValue(req.getGraph().getEdgeCount());
+                            row.createCell(22).setCellValue((double) req.getWl());
+                            row.createCell(23).setCellValue((double) req.getTotalBw());
+
+                            int cellIndex = 24; //TODO: should prolly not be hard coded
+                            for (Node current : cur_dc_substrates.get(0).getGraph().getVertices()) {
+                                if (!(current.getType().equalsIgnoreCase("Switch"))) {
+                                    row.createCell(cellIndex).setCellValue(current.getAvailableCpu() / (double) current.getCpu());
+
+                                    double life = 0;
+                                    double reqHosted = 0;
+
+                                    for (Request act : embedded) {
+                                        if (act.getRMapNF().containsNodeInMap(current)) {
+                                            life = life + (act.getEndDate() - cur_dc_algorithm.getTs());
+                                            reqHosted++;
+                                        }
+                                    }
+
+                                    row.createCell(cellIndex + 1).setCellValue(life / (double) reqHosted);
+
+                                    cellIndex += 2;
+                                }
+                            }
+                            if (cur_dc_algorithm.getId().contains("RL")) {
+                                if (belief) {
+                                    writer.write( req.getId() + "	"+ Arrays.deepToString(req.getRMapNF().getQb())+"\n");
+                                    writer2.write( req.getId() + "	"+ Arrays.deepToString(req.getRMapNF().getUb())+"\n");
+                                } else {
+                                    writer.write( req.getId() + "	"+ Arrays.deepToString(req.getRMapNF().getQ())+"\n");
+                                    writer2.write( req.getId() + "	"+ Arrays.deepToString(req.getRMapNF().getU())+"\n");
+                                }
+                            }
+
+                        } //starting iterate
+                    }   //  starting
+
+                }
+            }//end of simulation
+
+            workbook.write(fileOut);
+            workbook.close();
+            fileOut.close();
+            //if (simulation.getAlgorithm().getId().contains("RL")) {
+            //    writer.close();
+            //    writer2.close();
+            //} Commented out because they were null writers anyway
+
+
+        }
+        catch (IOException e)
+        {
+            e.printStackTrace();
+
+        }
 
   /* catch (WriteException e)
     {

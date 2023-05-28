@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 import java.util.Set;
+import java.util.HashMap;
 
 import model.*;
 import org.apache.commons.collections15.Factory;
@@ -54,17 +55,30 @@ public class Orchestrator {
     private static boolean dynamic = false; // taken from MainWithoutGUI
     private static int sub_nodes=0; // taken from MainWithoutGUI
     private static double nom_cap=0; // taken from MainWithoutGUI
+    public int n_dcs;
+
+    public static final class Lock { }
+    private List<Lock> locks;
 
     public Orchestrator(int numRequests, int numDCs) throws CloneNotSupportedException {
+        this.n_dcs = numDCs;
         ArrayList<Substrate> nfvi = createSubGraph(numDCs);
         Substrate InPs = new Substrate("InPs");
         this.DCs = new ArrayList<SimulationNFV>();
+        this.locks = new ArrayList<Lock>();
         for (int i = 0; i < numDCs; i++) {
-            AlgorithmNF algoi = new AlgorithmNF("MILP_max", nfvi.get(i));
-            SimulationNFV DCi = new SimulationNFV(InPs, nfvi, requests, algoi);
+            String algorithmID = "MILP_max";
+            Lock cur_dc_lock = new Lock();
+            locks.add(cur_dc_lock);
+            AlgorithmNF algoi = new AlgorithmNF(algorithmID, nfvi.get(i));
+            SimulationNFV DCi = new SimulationNFV(InPs, nfvi, algoi, "DC_" + i + "-" + algorithmID, cur_dc_lock);
             this.DCs.add(DCi);
         }
         this.requests = createFG(numRequests);
+    }
+
+    public List<Lock> getLocks() {
+        return this.locks;
     }
 
     public int getEndDate() {
@@ -112,10 +126,51 @@ public class Orchestrator {
 			updatedRequests.add(req);
 			//System.out.println("To update request " + req.id + " at time " + time);
 			}
-			
 		}
 		return updatedRequests;
 	}
+
+    // Pick the datacenters on which to embed incoming requests.
+    public HashMap<Integer, ArrayList<Request>> orchestrate(List<Request> startingRequests, int time) {
+        Random rand = new Random();
+        // initialize mapping
+        HashMap<Integer, ArrayList<Request>> dc_map = new HashMap<Integer, ArrayList<Request>>();
+        for (int i = 0; i < n_dcs; i++) {
+            ArrayList<Request> l = new ArrayList<Request>();
+            dc_map.put(i, l);
+        }
+        // create mapping
+        for (Request req : startingRequests) {
+            dc_map.get(rand.nextInt(n_dcs)).add(req);
+        }
+        return dc_map;
+    }
+
+    public void releaseEndingRequests(int time) {
+        List<Request> endingReqs = getEndingRequests(time);
+        // TODO: Release from DC to which reqeusts were assigned
+
+
+    }
+
+    public void handleUpdatedRequests(int time) {
+        List<Request> updatedReqs = getUpdatedRequests(time);
+        // TODO: Release from DC to which reqeusts were assigned
+    }
+
+    public void allocateStartingRequests(int time) {
+        List<Request> startingReqs = getStartingRequests(time);
+        HashMap<Integer, ArrayList<Request>> dc_map = orchestrate(startingReqs, time);
+        // wait for all threads to have finished timestep before this
+        for (int i = 0; i < n_dcs; i++) {
+            ArrayList<Request> reqs_i = dc_map.get(i);
+            SimulationNFV cur_dc = DCs.get(i);
+            cur_dc.setToEmbed(reqs_i);
+            // wake up thread (dc)
+            //// One version nrunalgorithm with arguments, one without? add "embedded" variable to SimulationNFV class? represents currently active requests?
+            //// Probably remove List<Request> Requests from SimulationNFV as they are now in Orchestrator.
+        }
+    }
 
     // Copied from MainWithoutGUI to move everything to orchestrator.
     public static ArrayList<Substrate> createSubGraph(int pop_num) throws CloneNotSupportedException{
