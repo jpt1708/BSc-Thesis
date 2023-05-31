@@ -70,8 +70,10 @@ public class MainWithoutGUI_old{
         //int experiments=1; ////wasnt used?
         SubstrateNodeFactory.MIN_CPU_RACK = 0.1;
         SubstrateNodeFactory.MAX_CPU_RACK = 0.2;
+        boolean monitoring = true;
+        boolean dynamic = true;
         //Create an abstract graph where each node represent an InP
-        Orchestrator orchestrator = new Orchestrator(numRequests, n_dcs);
+        Orchestrator orchestrator = new Orchestrator(numRequests, n_dcs, monitoring, dynamic);
 
         //Substrate InPs = new Substrate("InPs"); moved to Orchestrator
         //ArrayList<Substrate> nfvi = createSubGraph(n_dcs); moved to Orchestrator

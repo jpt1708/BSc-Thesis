@@ -11,8 +11,10 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Iterator;
 
-import edu.uci.ics.jung.graph.util.Pair;
+import monitoring.Monitor;
 import model.components.Link;
 import model.components.NF;
 import model.components.Node;
@@ -20,6 +22,7 @@ import model.components.SubstrateLink;
 import model.components.SubstrateSwitch;
 import simenv.SimulatorConstants;
 
+import edu.uci.ics.jung.graph.util.Pair;
 import org.apache.commons.io.output.NullWriter;
 import org.apache.commons.collections15.Factory;
 import org.apache.poi.ss.usermodel.Cell;
@@ -32,12 +35,15 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import com.twelvemonkeys.io.NullOutputStream;
 
-/**
- * This class is the instantiation of a simulation. It is defined by a set
- * of requests, a substrate and an algorithm
+/*
+ * This class represents a data-center.
+ * It is primarily defined by a substrate graph, representing its layout,
+ * and an instance of AlgorithmNF, the algorithm that decides how to embed
+ * incoming requests.
  */
+
 public class SimulationNFV implements Cloneable, Runnable {
-	
+
 	private String id;
 	private Substrate InPs;
 	private List<Substrate> substrates;
@@ -46,6 +52,13 @@ public class SimulationNFV implements Cloneable, Runnable {
 	private AlgorithmNF algorithm;
 	private List<Node> NFs;
 	private int timestep;
+	private int totalSimTime;
+
+	private boolean monitoring;
+	private Monitor monAgent;
+	private ArrayList<Integer> m_ts;
+
+	private boolean dynamic;
 
 	// \/ for data collection \/
 	private double[] results=new double[3];
@@ -64,13 +77,14 @@ public class SimulationNFV implements Cloneable, Runnable {
 	private int viol_cpu_mon=0; //monitoring violations
 	private int mon_instances=0; //cum  monitoring instances
 	private int collocated=0;
+	private XSSFSheet dataSheet;
 
 	private static boolean belief = true; // from MainWithoutGUI
 
 	private final Object lock;
 	public boolean ready;
 
-	private static String[] columns = {"Time", "Acceptance", "Cum Revenue", "Cum Cost",
+	private static String[] columns = {"Time", "Request ID", "Acceptance", "Cum Revenue", "Cum Cost",
             "Cum CPUCost", "Cum BWCos", "Avg Server Util", "Avg Link Util", "LBL Server", "LBL link",
             "Violations", "Avg Time PR", "Violation Ratio", "Rejection Ratio", "Non Collocated", "Collocated",
             "Accepted", "Rejected", "Violations Monitoring", "Monitoring Instances", "SFC Nodes", "SFC Links",
@@ -79,7 +93,8 @@ public class SimulationNFV implements Cloneable, Runnable {
 	
 	/** Creates a new instance of Substrate */
     public SimulationNFV(Substrate InPs, List<Substrate> substrates,
-        		AlgorithmNF algorithm2, String id, List<Node> NFs, Object lock) {
+        		AlgorithmNF algorithm2, String id, List<Node> NFs,
+				Object lock, boolean monitoring, boolean dynamic, int totalSimTime) {
 		this.lock = lock;
     	this.substrates = substrates;
     	this.algorithm = algorithm2;
@@ -94,11 +109,17 @@ public class SimulationNFV implements Cloneable, Runnable {
 		this.timestep = 0; // is set by orchestrator after every step in main loop
 		this.ready = false;
 		System.out.println("DC id: " + this.id);
+		this.monAgent = new Monitor();
+		this.m_ts = new ArrayList<Integer>();
+		this.monitoring = monitoring;
+		this.dynamic = dynamic;
+		this.totalSimTime = totalSimTime;
     }
 
         /** Creates a new instance of Substrate */
     public SimulationNFV(Substrate InPs, List<Substrate> substrates,
-        		AlgorithmNF algorithm2, String id, Object lock) {
+        		AlgorithmNF algorithm2, String id,
+				Object lock, boolean monitoring, boolean dynamic, int totalSimTime) {
 		this.lock = lock;
     	this.substrates = substrates;
     	this.algorithm = algorithm2;
@@ -111,6 +132,11 @@ public class SimulationNFV implements Cloneable, Runnable {
 		this.timestep = 0; // is set by orchestrator after every step in main loop
 		this.ready = false;
 		System.out.println("DC id: " + this.id);
+		this.monAgent = new Monitor();
+		this.m_ts = new ArrayList<Integer>();
+		this.monitoring = monitoring;
+		this.dynamic = dynamic;
+		this.totalSimTime = totalSimTime;
 
 
 /*    	System.out.println("id: " + substrates.get(0));
@@ -138,6 +164,20 @@ public class SimulationNFV implements Cloneable, Runnable {
 		return endingRequests;
 	}
 
+	public List<Request> getUpdatedRequests(int time) {
+		List<Request> updatedRequests = new ArrayList<Request>();
+		for (Request req : this.embedded) { // makes sense to only go over currently embedded requests?
+            ArrayList<Integer> reqTS = req.getTS();
+            if (reqTS == null) continue;
+            if (req.getTS().contains((Integer)time)) {
+			//System.out.println("To update request " + req.id + " at time " + time + " " +req.getStartDate());
+			updatedRequests.add(req);
+			//System.out.println("To update request " + req.id + " at time " + time);
+			}
+		}
+		return updatedRequests;
+	}
+
 	public ArrayList<Request> getToEmbed() {
 		return this.toEmbed;
 	}
@@ -146,6 +186,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 		this.toEmbed = toEmbed;
 	}
 
+	// Main function, run as a thread
 	public void run() {
 		// Initialize data collecting classes
 		int counter2=0;
@@ -155,17 +196,17 @@ public class SimulationNFV implements Cloneable, Runnable {
 
 		new File(path).mkdirs();
 		//  String filename = "input"+ orchestrator.getDCs().get(0).getAlgorithm().getId()+ "-" + "TMP" + ".xlsx";
-		String filename = "outputData-" + this.id + ".xlsx";
+		String filename = "outputData-" + id + ".xlsx";
 		System.out.println(filename);
-		if (this.id.contains("RL")) {
-			String filename1 = this.id + "_AD.txt";
+		if (id.contains("RL")) {
+			String filename1 = id + "_AD.txt";
 			try {
 				writer = new BufferedWriter(new FileWriter(path+File.separator+filename1));
 			} catch (IOException e) {
 				//TODO: maybe handle exception
 			}
 			writer = new NullWriter();
-			String filename2 = this.id + "_Memory.txt";
+			String filename2 = id + "_Memory.txt";
 			try {
 				writer2 = new BufferedWriter(new FileWriter(path+File.separator+filename2));
 			} catch (IOException e) {
@@ -179,11 +220,12 @@ public class SimulationNFV implements Cloneable, Runnable {
 			fileOut = new FileOutputStream(path+File.separator+filename);
 		} catch (Exception e) {
 			fileOut = new NullOutputStream();
-			System.out.println("[ERROR] Excel sheet writer for " + this.id + " is null");
+			System.out.println("[ERROR] Excel sheet writer for " + id + " is null");
+			e.printStackTrace(System.err);
 			// TODO: handle exception
 		}
 		XSSFWorkbook workbook = new XSSFWorkbook();
-		XSSFSheet dataSheet = workbook.createSheet("Sheet1");
+		dataSheet = workbook.createSheet("Sheet1");
 		Font headerFont = workbook.createFont();
 		headerFont.setBold(true);
 		headerFont.setFontHeightInPoints((short) 14);
@@ -200,7 +242,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 		}
 		int headerCellIndex = columns.length;
 
-		for (Node current : this.substrates.get(0).getGraph().getVertices()) {
+		for (Node current : substrates.get(0).getGraph().getVertices()) {
 			if (!(current.getType().equalsIgnoreCase("Switch"))) {
 				Cell cell = headerRow.createCell(headerCellIndex);
 				cell.setCellValue("node_" + current.getId() + "_available_cpu");
@@ -213,11 +255,22 @@ public class SimulationNFV implements Cloneable, Runnable {
 			}
 		}
 
+		// Monitoring agent
+
+		if (monitoring) {
+			monAgent.generateMInstances(0);
+		}
+		String currentReq = "none";
+		Double reward = 0.0;
+
+		List<Request> updatedRequests;
+
 		// Data collecting set up finished
 
-		for (int timestep = 0; ; timestep++) { // Break when toEmbed set to null by orchestrator
-			// free ending requests, updated?
-			// One iteration of this loop is one timestep in the simulation
+		// Break when toEmbed set to null by orchestrator
+		// One iteration of this loop is one timestep in the simulation
+		for (timestep = 0; ; timestep++) {
+
 			// Sleep until Orchestrator has set requests and timestep, then wake up and do an iteration
 			synchronized (lock) {
 				try {
@@ -225,33 +278,85 @@ public class SimulationNFV implements Cloneable, Runnable {
 						lock.wait();
 					}
 				} catch (InterruptedException e) {
-					System.out.println("DC " + this.id + " interrupted");
+					System.out.println("DC " + id + " interrupted");
 				}
 			}
-			// wake up -- toEmbed should be set by orchestrator
-			
-			if (this.toEmbed == null) { // if set to null by orchestrator, simulation is over
-				System.out.println("DC " + this.id + " toEmbed null, break");
+			// if set to null by orchestrator, simulation is over
+			if (toEmbed == null) {
+				System.out.println("DC " + id + " toEmbed null, break");
 				break;
 			}
-			
-			//if (this.toEmbed.size() > 0) {
-			System.out.println(this.id + " timestep = " + timestep + ", " + this.toEmbed.size() + " requests");
+
+			//if (toEmbed.size() > 0) {
+			//System.out.println(id + " timestep = " + timestep + ", " + toEmbed.size() + " requests");
 			//}
 
 			List<Request> endingReqs = getEndingRequests(timestep);
 			releaseRequests(endingReqs, timestep);
 			embedded.removeAll(endingReqs);
 
-			this.algorithm.addRequests(toEmbed);
-			//TODO: add monitoring agent? -- this was done in old main sim loop
-			boolean ret = this.algorithm.runAlgorithm(embedded, timestep);
+			algorithm.addRequests(toEmbed);
+			algorithm.addMAgent(monAgent);
+			if (dynamic) {
+				updatedRequests = getUpdatedRequests(timestep);
+
+                        if (updatedRequests.size()>0){
+                            //System.out.println("updatedRequests: " +updatedRequests.size());
+
+							// Never removed from embedded, so algorithm will embed them again. (I think)
+                            releaseRequests(updatedRequests, timestep);
+                            for(Request upReq: updatedRequests){
+                                //upReq.print();
+                                if (!(upReq.getRMapNF().isDenied())) {
+                                    upReq.getDFG().updateGraph(upReq.getGraph(), timestep, totalSimTime, false);
+                                }
+                                //upReq.print();
+
+                            }
+                            updateRequests(updatedRequests, timestep);
+                        }
+			}
+
+			if (monitoring) {
+				mon_instances++;
+				if (!(currentReq.equalsIgnoreCase(monAgent.getRequestID()))) {
+					reward=0.0;
+				}
+				boolean overSubscription = false;
+				Collection<Node> tmp_nodes = getSubstrates().get(0).getGraph().getVertices();
+				Iterator<Node> iterator = tmp_nodes.iterator();
+
+				// while loop
+				while (iterator.hasNext()) {
+					Node current = iterator.next();
+					if (!(current.getType().equalsIgnoreCase("Switch"))) {
+						//	double util = current.getAvailableCpu()/(current.getCpu()+Double.MIN_VALUE);
+						//System.out.println("Monitoring util: " + util );
+						//	if (util<0.1) {
+						if (current.getAvailableCpu()<0) {
+							overSubscription=true;
+							break;
+						}
+					}
+				}
+
+				if (overSubscription) {
+					reward=reward-0.1;
+					viol_cpu_mon++;
+				}
+				System.out.println(currentReq + " " + monAgent.getRequestID() + " " +reward);
+
+				monAgent.setRequestID(currentReq);
+				monAgent.setPenalty(reward);
+			}
+
+			boolean ret = algorithm.runAlgorithm(embedded, timestep);
 			if (!ret) {
-				System.out.println("[ERROR] Algorithm in DC " + this.id + " failed.");
+				System.out.println("[ERROR] Algorithm in DC " + id + " failed.");
 			}
 
 			for (Request cur_req : toEmbed) {
-				//System.out.println("DC " + this.id + " Req " + cur_req_id + " results");
+				//System.out.println("DC " + id + " Req " + cur_req_id + " results");
 				requested++;
 				if (cur_req.getRMapNF().isDenied()) {
 					denials++;
@@ -272,41 +377,42 @@ public class SimulationNFV implements Cloneable, Runnable {
 					}
 
 					///////////////////////////////////
-					cpu_util = cur_req.getRMapNF().Node_utilization_Server_Cpu(this.substrates.get(0));
-					bw_util = cur_req.getRMapNF().Link_utilization(this.substrates.get(0));
-					max_util_server = cur_req.getRMapNF().max_util_server(this.substrates.get(0));
-					max_util_link =  cur_req.getRMapNF().max_link_utilization(this.substrates.get(0));
+					cpu_util = cur_req.getRMapNF().Node_utilization_Server_Cpu(substrates.get(0));
+					bw_util = cur_req.getRMapNF().Link_utilization(substrates.get(0));
+					max_util_server = cur_req.getRMapNF().max_util_server(substrates.get(0));
+					max_util_link =  cur_req.getRMapNF().max_link_utilization(substrates.get(0));
 				}
 				counter2++;
 				Row row = dataSheet.createRow(counter2);
 				row.createCell(0).setCellValue(timestep);
-				System.out.println("Writing data in " + this.id + " at timestep " + timestep);
-				row.createCell(1).setCellValue((double)(requested-denials)/(double)requested);
-				row.createCell(2).setCellValue(revenue);
-				row.createCell(3).setCellValue(cost);
-				row.createCell(4).setCellValue(cpuCost);
-				row.createCell(5).setCellValue(bwCost);
-				row.createCell(6).setCellValue(cpu_util);
-				row.createCell(7).setCellValue(bw_util);
-				row.createCell(8).setCellValue(max_util_server/cpu_util);
-				row.createCell(9).setCellValue(max_util_link/bw_util);
-				row.createCell(10).setCellValue(viol_cpu);
-				row.createCell(11).setCellValue(sol_time/(double)requested);
-				row.createCell(12).setCellValue(viol_cpu/(double)requested);
-				row.createCell(13).setCellValue((double)(denials)/(double)requested);
-				row.createCell(14).setCellValue((double)(requested-denials-collocated));
-				row.createCell(15).setCellValue((double)(collocated));
-				row.createCell(16).setCellValue((double)(requested-denials));
-				row.createCell(17).setCellValue((double)(denials));
-				row.createCell(18).setCellValue((double)viol_cpu_mon);
-				row.createCell(19).setCellValue((double)mon_instances);
-				row.createCell(20).setCellValue(cur_req.getGraph().getVertexCount());
-				row.createCell(21).setCellValue(cur_req.getGraph().getEdgeCount());
-				row.createCell(22).setCellValue((double) cur_req.getWl());
-				row.createCell(23).setCellValue((double) cur_req.getTotalBw());
+				//System.out.println("Writing data in " + id + " at timestep " + timestep);
+				row.createCell(1).setCellValue(cur_req.getId());
+				row.createCell(2).setCellValue((double)(requested-denials)/(double)requested);
+				row.createCell(3).setCellValue(revenue);
+				row.createCell(4).setCellValue(cost);
+				row.createCell(5).setCellValue(cpuCost);
+				row.createCell(6).setCellValue(bwCost);
+				row.createCell(7).setCellValue(cpu_util);
+				row.createCell(8).setCellValue(bw_util);
+				row.createCell(9).setCellValue(max_util_server/cpu_util);
+				row.createCell(10).setCellValue(max_util_link/bw_util);
+				row.createCell(11).setCellValue(viol_cpu);
+				row.createCell(12).setCellValue(sol_time/(double)requested);
+				row.createCell(13).setCellValue(viol_cpu/(double)requested);
+				row.createCell(14).setCellValue((double)(denials)/(double)requested);
+				row.createCell(15).setCellValue((double)(requested-denials-collocated));
+				row.createCell(16).setCellValue((double)(collocated));
+				row.createCell(17).setCellValue((double)(requested-denials));
+				row.createCell(18).setCellValue((double)(denials));
+				row.createCell(19).setCellValue((double)viol_cpu_mon);
+				row.createCell(20).setCellValue((double)mon_instances);
+				row.createCell(21).setCellValue(cur_req.getGraph().getVertexCount());
+				row.createCell(22).setCellValue(cur_req.getGraph().getEdgeCount());
+				row.createCell(23).setCellValue((double) cur_req.getWl());
+				row.createCell(24).setCellValue((double) cur_req.getTotalBw());
 
-				int cellIndex = 24; //TODO: should prolly not be hard coded
-				for (Node current : this.substrates.get(0).getGraph().getVertices()) {
+				int cellIndex = columns.length;
+				for (Node current : substrates.get(0).getGraph().getVertices()) {
 					if (!(current.getType().equalsIgnoreCase("Switch"))) {
 						row.createCell(cellIndex).setCellValue(current.getAvailableCpu() / (double) current.getCpu());
 
@@ -315,7 +421,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 
 						for (Request act : embedded) {
 							if (act.getRMapNF().containsNodeInMap(current)) {
-								life = life + (act.getEndDate() - this.algorithm.getTs());
+								life = life + (act.getEndDate() - algorithm.getTs());
 								reqHosted++;
 							}
 						}
@@ -325,7 +431,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 						cellIndex += 2;
 					}
 				}
-				if (this.algorithm.getId().contains("RL")) {
+				if (algorithm.getId().contains("RL")) {
 					try {
 						if (belief) {
 							writer.write(cur_req.getId() + "	"+ Arrays.deepToString(cur_req.getRMapNF().getQb())+"\n");
@@ -342,24 +448,31 @@ public class SimulationNFV implements Cloneable, Runnable {
 			}
 			toEmbed.clear();
 			this.ready = false;
-			synchronized (this.lock) {
-				this.lock.notify();
+			synchronized (lock) {
+				lock.notify();
 			}
 		} // End of main sim loop -- for (int timestep = 0; ; timestep++) { // Break when toEmbed set to null by orchestrator
+		
+		
+		
 		try {
-			System.out.println("Writing workbook of " + this.id + " to " + path+File.separator+filename);
+			System.out.println("Writing workbook of " + id + " to " + path+File.separator+filename);
 			System.out.println(dataSheet.getPhysicalNumberOfRows() + "rows in the sheet");
 			workbook.write(fileOut);
 			workbook.close();
 			fileOut.close();
 		} catch (IOException e) {
-			System.out.println("Error writing workbook of " + this.id + " to file");
+			System.out.println("Error writing workbook of " + id + " to file");
 			e.printStackTrace();
 		}
 	}
 
+	public XSSFSheet getDataSheet() {
+		return this.dataSheet;
+	}
+
 	public Object getCopy(int n) {
-		SimulationNFV s = new SimulationNFV(this.InPs, this.substrates, this.algorithm, this.id, this.NFs, this.lock);
+		SimulationNFV s = new SimulationNFV(this.InPs, this.substrates, this.algorithm, this.id, this.NFs, this.lock, this.monitoring, this.dynamic, this.totalSimTime);
 		s.setId(this.getId() + "_copy_" + Integer.toString(n));
 		return s;
 	}
@@ -422,7 +535,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 	}
 
 	/** Release resources of the requests from the substrate **/
-	public void releaseRequests(List<Request> endingRequests,int i) {
+	public void releaseRequests(List<Request> endingRequests, int i) {
 
 		for (Request req : endingRequests){
 			//req.print();

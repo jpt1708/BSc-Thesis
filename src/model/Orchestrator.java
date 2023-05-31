@@ -52,29 +52,35 @@ import simenv.SimulatorConstants;
 public class Orchestrator {
     private ArrayList<SimulationNFV> DCs;
     private List<Request> requests;
-    private static boolean dynamic = false; // taken from MainWithoutGUI
-    private static int sub_nodes=0; // taken from MainWithoutGUI
+    private boolean dynamic; // taken from MainWithoutGUI
+    private static int sub_nodes=0; // taken from MainWithoutGUI //// why static?
     private static double nom_cap=0; // taken from MainWithoutGUI
     public int n_dcs;
+    private boolean monitoring;
 
     public static final class Lock { }
     private List<Lock> locks;
 
-    public Orchestrator(int numRequests, int numDCs) throws CloneNotSupportedException {
+    public Orchestrator(int numRequests, int numDCs, boolean monitoring, boolean dynamic) throws CloneNotSupportedException {
+        this.monitoring = monitoring;
+        this.dynamic = dynamic;
         this.n_dcs = numDCs;
         ArrayList<Substrate> nfvi = createSubGraph(numDCs);
         Substrate InPs = new Substrate("InPs");
         this.DCs = new ArrayList<SimulationNFV>();
         this.locks = new ArrayList<Lock>();
+        this.requests = createFG(numRequests);
         for (int i = 0; i < numDCs; i++) {
             String algorithmID = "MILP_max";
             Lock cur_dc_lock = new Lock();
             locks.add(cur_dc_lock);
             AlgorithmNF algoi = new AlgorithmNF(algorithmID, nfvi.get(i));
-            SimulationNFV DCi = new SimulationNFV(InPs, nfvi, algoi, "DC_" + i + "-" + algorithmID, cur_dc_lock);
+            SimulationNFV DCi = new SimulationNFV(
+                                InPs, nfvi, algoi,
+                                "DC_" + i + "-" + algorithmID, cur_dc_lock,
+                                this.monitoring, this.dynamic, this.getEndDate());
             this.DCs.add(DCi);
         }
-        this.requests = createFG(numRequests);
     }
 
     public List<Lock> getLocks() {
@@ -228,7 +234,7 @@ public class Orchestrator {
     }
 
 
-    public static List<Request>  createFG(int numRequests) throws CloneNotSupportedException{
+    public List<Request>  createFG(int numRequests) throws CloneNotSupportedException{
         final String prefix ="req";
         final String timeDistribution = SimulatorConstants.POISSON_DISTRIBUTION;
         final int fixStart=0;

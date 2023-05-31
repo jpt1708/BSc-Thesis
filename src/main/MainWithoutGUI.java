@@ -4,6 +4,7 @@ package main;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.OutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Writer;
@@ -18,11 +19,15 @@ import java.util.Locale;
 import java.util.Random;
 import java.util.Set;
 import java.util.HashMap;
+import java.util.Collections;
+import java.util.Comparator;
 
 import model.*;
 import org.apache.commons.collections15.Factory;
+import org.apache.commons.collections15.set.ListOrderedSet;
 import org.apache.commons.io.output.NullWriter;
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.Font;
 import org.apache.poi.ss.usermodel.IndexedColors;
@@ -30,6 +35,8 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.sqlite.SQLiteConfig.LockingMode;
+
+import com.twelvemonkeys.io.NullOutputStream;
 
 import cern.jet.random.Exponential;
 import cern.jet.random.engine.MersenneTwister;
@@ -59,7 +66,7 @@ public class MainWithoutGUI{
     static boolean dynamic = true;
     static boolean belief=true;
 
-    private static String[] columns = {"Time", "Acceptance", "Cum Revenue", "Cum Cost",
+    private static String[] columns = {"Time", "Request ID", "Acceptance", "Cum Revenue", "Cum Cost",
             "Cum CPUCost", "Cum BWCos", "Avg Server Util", "Avg Link Util", "LBL Server", "LBL link",
             "Violations", "Avg Time PR", "Violation Ratio", "Rejection Ratio", "Non Collocated", "Collocated",
             "Accepted", "Rejected", "Violations Monitoring", "Monitoring Instances", "SFC Nodes", "SFC Links",
@@ -69,14 +76,17 @@ public class MainWithoutGUI{
 
     public static void main(String[] args) throws CloneNotSupportedException {
         int n_dcs = 3; // # of datacenters to simulate
-        int numRequests = 3; // # of requests to simulate
+        int numRequests = 60; // # of requests to simulate
 
         // Number of experiments to execute
         //int experiments=1; ////wasnt used?
         SubstrateNodeFactory.MIN_CPU_RACK = 0.1;
         SubstrateNodeFactory.MAX_CPU_RACK = 0.2;
+
+        boolean monitoring = true;
+        boolean dynamic = true;
         //Create an abstract graph where each node represent an InP
-        Orchestrator orchestrator = new Orchestrator(numRequests, n_dcs);
+        Orchestrator orchestrator = new Orchestrator(numRequests, n_dcs, monitoring, dynamic);
 
         //Substrate InPs = new Substrate("InPs"); moved to Orchestrator
         //ArrayList<Substrate> nfvi = createSubGraph(n_dcs); moved to Orchestrator
@@ -213,6 +223,15 @@ public class MainWithoutGUI{
 
 
     private static double[] launchSimulation(Orchestrator orchestrator) throws Exception{
+        String workbookOutputFileName = "results/combined-outputData.xlsx";
+        OutputStream workbookFileStream;
+        try {
+            workbookFileStream = new FileOutputStream(workbookOutputFileName);
+        } catch (Exception e) {
+            workbookFileStream = new NullOutputStream();
+            System.out.println("[ERROR] Excel sheet writer for orchestrator is null");
+            e.printStackTrace(System.err);
+        }
         //results, 0 cost, 1 time, 2, denial
         double[] results=new double[3];
         ////int denials = 0;
@@ -236,6 +255,8 @@ public class MainWithoutGUI{
             monAgent.generateMInstances(simulationTime);
             m_ts  = monAgent.getTS();
         }*/
+
+        List<XSSFSheet> dc_sheets = new ArrayList<XSSFSheet>();
 
         List<Thread> DC_threads = new ArrayList<Thread>();
         for (SimulationNFV cur_dc : orchestrator.getDCs()) {
@@ -280,15 +301,78 @@ public class MainWithoutGUI{
                 orchestrator.getLocks().get(i).notify();
             }
         }
+        XSSFWorkbook w = new XSSFWorkbook();
+        XSSFSheet globalSheet = w.createSheet("AllSheetsCombined");
+        List<Row> all_rows = new ArrayList<Row>();
         try {
             System.out.println("Simulation over");
             for (int i = 0; i < orchestrator.n_dcs; i++) {
+                dc_sheets.add(orchestrator.getDCs().get(i).getDataSheet());
                 System.out.println("Joining thread " + i);
                 DC_threads.get(i).join();
             }
         } catch (InterruptedException e) {
-            // TODO: handle exception
+            System.err.println("Error joining threads:");
+            e.printStackTrace(System.err);
         }
+        for (XSSFSheet s : dc_sheets) {
+            Iterator<Row> rowIter = s.rowIterator();
+            rowIter.next(); // Skip the first row, it has only title data.
+            while (rowIter.hasNext()) {
+                all_rows.add(rowIter.next());
+            }
+        }
+        Collections.sort(all_rows, new Comparator<Row>() {
+            @Override
+            public int compare(Row l, Row r) {
+                double l_time = l.getCell(0).getNumericCellValue();
+                double r_time = r.getCell(0).getNumericCellValue();
+                return l_time > r_time ? 1 : (l_time < r_time) ? -1 : 0;
+            }
+        });
+
+        Font headerFont = w.createFont();
+		headerFont.setBold(true);
+		headerFont.setFontHeightInPoints((short) 14);
+		headerFont.setColor(IndexedColors.RED.getIndex());
+
+		CellStyle headerCellStyle = w.createCellStyle();
+		headerCellStyle.setFont(headerFont);
+
+		Row headerRow = globalSheet.createRow(0);
+		for (int i = 0; i < columns.length; i++) {
+			Cell cell = headerRow.createCell(i);
+			cell.setCellValue(columns[i]);
+			cell.setCellStyle(headerCellStyle);
+		}
+        int rownum = 0;
+        for (Row r : all_rows) {
+            rownum++;
+            Row sheetRow = globalSheet.createRow(rownum);
+            for (int colnum = 0; colnum < r.getLastCellNum(); colnum++) {
+                Cell newcell = sheetRow.createCell(colnum);
+                Cell oldcell = r.getCell(colnum);
+                switch (oldcell.getCellType()) {
+                    case STRING:
+                        newcell.setCellValue(oldcell.getStringCellValue());
+                        break;
+                    case NUMERIC:
+                        newcell.setCellValue(oldcell.getNumericCellValue());
+                    default:
+                        break;
+                }
+            }
+        }
+        try {
+            System.out.println("Writing global workbook to " + workbookOutputFileName);
+            w.write(workbookFileStream);
+            w.close();
+            workbookFileStream.close();
+        } catch (IOException e) {
+            System.err.println("Error writing global workbook to file");
+            e.printStackTrace(System.err);
+        }
+
 
 
   /* catch (WriteException e)
