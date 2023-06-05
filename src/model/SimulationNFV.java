@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.PriorityQueue;
 
 import monitoring.Monitor;
 import model.components.Link;
@@ -52,7 +53,9 @@ public class SimulationNFV implements Cloneable, Runnable {
 	private AlgorithmNF algorithm;
 	private List<Node> NFs;
 	private int timestep;
-	private int totalSimTime;
+	private int simEndTime;
+	private int orchestratorTimeStep;
+	private PrioQNoDups<Integer> busyTimemsteps;
 
 	private boolean monitoring;
 	private Monitor monAgent;
@@ -90,11 +93,30 @@ public class SimulationNFV implements Cloneable, Runnable {
             "Accepted", "Rejected", "Violations Monitoring", "Monitoring Instances", "SFC Nodes", "SFC Links",
             "Total SFC Workload", "Total SFC Bandwidth"};
 
-	
+	public class PrioQNoDups<E> extends PriorityQueue<E> {
+		@Override
+		public boolean add(E e) {
+			boolean added = false;
+			if (!super.contains(e)) {
+				added = super.add(e);
+			}
+			return added;
+		}
+
+		@Override
+		public boolean addAll(Collection<? extends E> c) {
+			boolean added = false;
+			for (E e : c) {
+				added = add(e);
+			}
+			return added;
+		}
+	}
+
 	/** Creates a new instance of Substrate */
     public SimulationNFV(Substrate InPs, List<Substrate> substrates,
         		AlgorithmNF algorithm2, String id, List<Node> NFs,
-				Object lock, boolean monitoring, boolean dynamic, int totalSimTime) {
+				Object lock, boolean monitoring, boolean dynamic, int simEndTime) {
 		this.lock = lock;
     	this.substrates = substrates;
     	this.algorithm = algorithm2;
@@ -113,13 +135,17 @@ public class SimulationNFV implements Cloneable, Runnable {
 		this.m_ts = new ArrayList<Integer>();
 		this.monitoring = monitoring;
 		this.dynamic = dynamic;
-		this.totalSimTime = totalSimTime;
+		this.simEndTime = simEndTime;
+		this.orchestratorTimeStep = 0;
+		this.busyTimemsteps = new PrioQNoDups<Integer>();
+		this.busyTimemsteps.add(0);
+		this.busyTimemsteps.add(simEndTime);
     }
 
         /** Creates a new instance of Substrate */
     public SimulationNFV(Substrate InPs, List<Substrate> substrates,
         		AlgorithmNF algorithm2, String id,
-				Object lock, boolean monitoring, boolean dynamic, int totalSimTime) {
+				Object lock, boolean monitoring, boolean dynamic, int simEndTime) {
 		this.lock = lock;
     	this.substrates = substrates;
     	this.algorithm = algorithm2;
@@ -136,8 +162,11 @@ public class SimulationNFV implements Cloneable, Runnable {
 		this.m_ts = new ArrayList<Integer>();
 		this.monitoring = monitoring;
 		this.dynamic = dynamic;
-		this.totalSimTime = totalSimTime;
-
+		this.simEndTime = simEndTime;
+		this.orchestratorTimeStep = 0;
+		this.busyTimemsteps = new PrioQNoDups<Integer>();
+		this.busyTimemsteps.add(0);
+		this.busyTimemsteps.add(simEndTime);
 
 /*    	System.out.println("id: " + substrates.get(0));
 		try {
@@ -152,6 +181,14 @@ public class SimulationNFV implements Cloneable, Runnable {
 	// Set ready variable to true to end waiting loop on lock
 	public void go() {
 		this.ready = true;
+	}
+
+	public void setOrchestratorTimestep(int t) {
+		this.orchestratorTimeStep = t;
+	}
+
+	public int getDCTimeStep() {
+		return this.timestep;
 	}
 
 	public List<Request> getEndingRequests(int time) {
@@ -269,22 +306,34 @@ public class SimulationNFV implements Cloneable, Runnable {
 
 		// Break when toEmbed set to null by orchestrator
 		// One iteration of this loop is one timestep in the simulation
-		for (timestep = 0; ; timestep++) {
+		while (true) {
 
 			// Sleep until Orchestrator has set requests and timestep, then wake up and do an iteration
-			synchronized (lock) {
-				try {
-					while (!ready) {
-						lock.wait();
+			if (busyTimemsteps.peek() > orchestratorTimeStep) {
+				synchronized (lock) {
+					try {
+						while (!ready) {
+							lock.wait();
+						}
+					} catch (InterruptedException e) {
+						System.out.println("DC " + id + " interrupted");
 					}
-				} catch (InterruptedException e) {
-					System.out.println("DC " + id + " interrupted");
 				}
 			}
 			// if set to null by orchestrator, simulation is over
-			if (toEmbed == null) {
+			if (toEmbed == null && busyTimemsteps.peek() == simEndTime) {
 				System.out.println("DC " + id + " toEmbed null, break");
 				break;
+			}
+			if (toEmbed.size() > 0) {
+				for (Request r : toEmbed) {
+					busyTimemsteps.addAll(r.getTS());
+					System.out.println("busytimesteps: " + busyTimemsteps);
+				}
+			}
+			timestep = busyTimemsteps.poll();
+			if (timestep == simEndTime) {
+				busyTimemsteps.add(simEndTime);
 			}
 
 			//if (toEmbed.size() > 0) {
@@ -308,7 +357,7 @@ public class SimulationNFV implements Cloneable, Runnable {
                             for(Request upReq: updatedRequests){
                                 //upReq.print();
                                 if (!(upReq.getRMapNF().isDenied())) {
-                                    upReq.getDFG().updateGraph(upReq.getGraph(), timestep, totalSimTime, false);
+                                    upReq.getDFG().updateGraph(upReq.getGraph(), timestep, simEndTime, false);
                                 }
                                 //upReq.print();
 
@@ -356,6 +405,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 			}
 
 			for (Request cur_req : toEmbed) {
+				currentReq = cur_req.getId();
 				//System.out.println("DC " + id + " Req " + cur_req_id + " results");
 				requested++;
 				if (cur_req.getRMapNF().isDenied()) {
@@ -447,10 +497,13 @@ public class SimulationNFV implements Cloneable, Runnable {
 				}
 			}
 			toEmbed.clear();
-			this.ready = false;
-			synchronized (lock) {
-				lock.notify();
+			if (busyTimemsteps.peek() > orchestratorTimeStep) {
+				this.ready = false;
+				synchronized (lock) {
+					lock.notify();
+				}
 			}
+			System.out.println("busytimesteps l502: " + busyTimemsteps);
 		} // End of main sim loop -- for (int timestep = 0; ; timestep++) { // Break when toEmbed set to null by orchestrator
 		
 		
@@ -472,7 +525,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 	}
 
 	public Object getCopy(int n) {
-		SimulationNFV s = new SimulationNFV(this.InPs, this.substrates, this.algorithm, this.id, this.NFs, this.lock, this.monitoring, this.dynamic, this.totalSimTime);
+		SimulationNFV s = new SimulationNFV(this.InPs, this.substrates, this.algorithm, this.id, this.NFs, this.lock, this.monitoring, this.dynamic, this.simEndTime);
 		s.setId(this.getId() + "_copy_" + Integer.toString(n));
 		return s;
 	}

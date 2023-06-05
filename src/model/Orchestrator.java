@@ -61,6 +61,9 @@ public class Orchestrator {
     public static final class Lock { }
     private List<Lock> locks;
 
+    private XSSFWorkbook mainWorkbook;
+    private XSSFSheet orchSheet;
+
     public Orchestrator(int numRequests, int numDCs, boolean monitoring, boolean dynamic) throws CloneNotSupportedException {
         this.monitoring = monitoring;
         this.dynamic = dynamic;
@@ -103,6 +106,18 @@ public class Orchestrator {
         this.DCs = DCs;
     }
 
+    public List<Request> getAllRequests() {
+        return this.requests;
+    }
+
+    public XSSFWorkbook getMainWorkbook() {
+        return this.mainWorkbook;
+    }
+
+    public XSSFSheet getOrchSheet() {
+        return this.orchSheet;
+    }
+
     // Copied from SimulationNFV class, as requests are now handled in the Orchestrator
     public List<Request> getStartingRequests(int time) {
 		List<Request> startingRequests = new ArrayList<Request>();
@@ -111,7 +126,7 @@ public class Orchestrator {
 				startingRequests.add(req);
 		return startingRequests;
 	}
-	
+
 	public List<Request> getEndingRequests(int time) {
 		List<Request> endingRequests = new ArrayList<Request>();
 		for (Request req : requests){
@@ -137,7 +152,8 @@ public class Orchestrator {
 	}
 
     // Pick the datacenters on which to embed incoming requests.
-    public HashMap<Integer, ArrayList<Request>> orchestrate(List<Request> startingRequests, int time) {
+    public HashMap<Integer, ArrayList<Request>> orchestrate(int time) {
+        List<Request> startingRequests = getStartingRequests(time);
         Random rand = new Random();
         // initialize mapping
         HashMap<Integer, ArrayList<Request>> dc_map = new HashMap<Integer, ArrayList<Request>>();
@@ -150,32 +166,6 @@ public class Orchestrator {
             dc_map.get(rand.nextInt(n_dcs)).add(req);
         }
         return dc_map;
-    }
-
-    public void releaseEndingRequests(int time) {
-        List<Request> endingReqs = getEndingRequests(time);
-        // TODO: Release from DC to which reqeusts were assigned
-
-
-    }
-
-    public void handleUpdatedRequests(int time) {
-        List<Request> updatedReqs = getUpdatedRequests(time);
-        // TODO: Release from DC to which reqeusts were assigned
-    }
-
-    public void allocateStartingRequests(int time) {
-        List<Request> startingReqs = getStartingRequests(time);
-        HashMap<Integer, ArrayList<Request>> dc_map = orchestrate(startingReqs, time);
-        // wait for all threads to have finished timestep before this
-        for (int i = 0; i < n_dcs; i++) {
-            ArrayList<Request> reqs_i = dc_map.get(i);
-            SimulationNFV cur_dc = DCs.get(i);
-            cur_dc.setToEmbed(reqs_i);
-            // wake up thread (dc)
-            //// One version nrunalgorithm with arguments, one without? add "embedded" variable to SimulationNFV class? represents currently active requests?
-            //// Probably remove List<Request> Requests from SimulationNFV as they are now in Orchestrator.
-        }
     }
 
     // Copied from MainWithoutGUI to move everything to orchestrator.

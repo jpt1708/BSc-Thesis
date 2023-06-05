@@ -2923,9 +2923,9 @@ public class AlgorithmNF {
             writer = new BufferedWriter(new FileWriter(path+File.separator+filename));
             String filename1 = "requests_"+this.id+"_"+ + name +".txt";
             writer1 = new BufferedWriter(new FileWriter(path+File.separator+filename1));
-            System.out.println("Filenames:");
-            System.out.println(path+File.separator+filename);
-            System.out.println(path+File.separator+filename1);
+            //System.out.println("Filenames:");
+            //System.out.println(path+File.separator+filename);
+            //System.out.println(path+File.separator+filename1);
 
 
 
@@ -2997,8 +2997,8 @@ public class AlgorithmNF {
                 //set revenue to reqMap
                 reqMap.setEmbeddingRevenue(bw_revenue+proc_revenue);
 
-                System.out.println("sfcNodes: "+Arrays.toString(sfcNodes));
-                System.out.println("sfcLinks: "+Arrays.toString(sfcLinks[0]));
+                //System.out.println("sfcNodes: "+Arrays.toString(sfcNodes));
+                //System.out.println("sfcLinks: "+Arrays.toString(sfcLinks[0]));
 
 
 
@@ -3155,14 +3155,14 @@ public class AlgorithmNF {
                     boolean solvedOK = cplex.solve();
                     //long solveEndTime = System.nanoTime();
                     //long solveTime = solveEndTime - solveStartTime;
-                    System.out.println("solvedOK: " + solvedOK);
+                    //System.out.println("solvedOK: " + solvedOK);
 
                     req.print();
                     if (solvedOK) {
 
-                        System.out.println("###################################");
+                        //System.out.println("###################################");
                         //	System.out.println( "Found an answer! CPLEX status: " + cplex.getStatus() + ", Time (msec): " + ((double) solveTime / 1000000.0));
-                        System.out.println( "Found an answer! CPLEX status: " + cplex.getStatus() );
+                        //System.out.println( "Found an answer! CPLEX status: " + cplex.getStatus() );
                         cplex.output().println("Solution value = " + cplex.getObjValue());
                         System.out.println("###################################");
                         //substrateCopy.print();
@@ -3180,7 +3180,7 @@ public class AlgorithmNF {
                                     nodeMap.put(req_n.get(i),subNodesList.get(u));
                                     if (!(updateSubstrate(substrateCopy,subNodesList.get(u),req_n.get(i).getAvailableCpu())))
                                         throw new ArithmeticException("Substrate Node Capacity not updated");
-                                    System.out.println("VNF  " + i + " to node" + u +"  " +xVar[u][i]);
+                                    //System.out.println("VNF  " + i + " to node" + u +"  " +xVar[u][i]);
                                 }
                             }
                         }
@@ -3209,7 +3209,7 @@ public class AlgorithmNF {
                                             List<Pair<Integer>> tmpPath = new ArrayList<Pair<Integer>> ();
                                             tmpPath.add(key);
                                             lmap.put(key4lmap,tmpPath);
-                                            System.out.println("Link : " +k+" "+m + " to " + u+ " "+v +" "+ fVar1[u][v][k][m]);
+                                            //System.out.println("Link : " +k+" "+m + " to " + u+ " "+v +" "+ fVar1[u][v][k][m]);
                                             if (!(updateSubLink(substrateCopy,u,v, fVar1[u][v][k][m])))
                                                 throw new ArithmeticException("Substrate Link Capacity not updated");
 
@@ -3229,18 +3229,18 @@ public class AlgorithmNF {
                         reqMap.setBWCost(bw_cost);
                         //req.setRMapNF(reqMap);
                         reqMap.setServersUsed(checkCollocation(nodeMap,subNodesList));
-                        System.out.println("###############################################");
-                        System.out.println(embedding_cost+ " " + (bw_revenue+proc_revenue) );
-                        System.out.println(nodeMap);
-                        System.out.println(lmap);
-                        System.out.println("###############################################");
+                        //System.out.println("###############################################");
+                        //System.out.println(embedding_cost+ " " + (bw_revenue+proc_revenue) );
+                        //System.out.println(nodeMap);
+                        //System.out.println(lmap);
+                        //System.out.println("###############################################");
 
 
                         writer1.write("Node Mapping: "+ nodeMap+ "\n");
                         writer1.write("Link Mapping: "+ lmap+ "\n");
-                        System.out.println("//////////Accepted///////// "+req.getId());
+                        //System.out.println("//////////Accepted///////// "+req.getId());
                     }else{
-                        System.out.println("Did not found an answer for Mapping");
+                        //System.out.println("Did not found an answer for Mapping");
                         reqMap.denied();
                         //req.setRMapNF(reqMap);
                     }
@@ -3275,7 +3275,7 @@ public class AlgorithmNF {
         } finally {
             try {writer.close(); writer1.close();}
             catch (Exception ex) {
-                System.out.println("Cannot open results file: " + ex);
+                //System.out.println("Cannot open results file: " + ex);
                 System.exit(0);
             }
         }

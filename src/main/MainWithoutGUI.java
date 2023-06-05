@@ -220,9 +220,24 @@ public class MainWithoutGUI{
         }
     }
 
+    private static void waitForDCs(Orchestrator orchestrator) throws InterruptedException {
+        for (int i = 0; i < orchestrator.n_dcs; i++) {
+            synchronized (orchestrator.getLocks().get(i)) {
+                while (orchestrator.getDCs().get(i).ready)
+                    orchestrator.getLocks().get(i).wait();
+            }
+        }
+    }
+
+    private static void setTimeStepInDCs(Orchestrator orchestrator, int time) {
+        for (SimulationNFV dc : orchestrator.getDCs()) {
+            dc.setOrchestratorTimestep(time);
+        }
+    }
 
 
-    private static double[] launchSimulation(Orchestrator orchestrator) throws Exception{
+
+    private static double[] launchSimulation(Orchestrator orchestrator) throws Exception {
         String workbookOutputFileName = "results/combined-outputData.xlsx";
         OutputStream workbookFileStream;
         try {
@@ -234,27 +249,11 @@ public class MainWithoutGUI{
         }
         //results, 0 cost, 1 time, 2, denial
         double[] results=new double[3];
-        ////int denials = 0;
-        ////double cost=0;
-        ////double cpuCost=0;
-        ////double bwCost=0;
-        ////double revenue=0;
-        ////double cpu_util = 0;
-        ////double bw_util=0;
-        ////double sol_time=0;
-        ////double max_util_server=0;
-        ////double max_util_link=0;
-        ////int requested= 0;
-        ////int viol_cpu = 0;  //requests violating their SLAs
-        ////int viol_cpu_mon=0; //monitoring violations
-        ////int mon_instances=0; //cum  monitoring instances
-        ////int collocated=0;
 
-        
-        /*    if (monitoring) {
-            monAgent.generateMInstances(simulationTime);
-            m_ts  = monAgent.getTS();
-        }*/
+        ArrayList<Integer> reqStartTimes = new ArrayList<Integer>();
+        for (Request req : orchestrator.getAllRequests()) {
+            reqStartTimes.add(req.getStartDate());
+        }
 
         List<XSSFSheet> dc_sheets = new ArrayList<XSSFSheet>();
 
@@ -269,15 +268,17 @@ public class MainWithoutGUI{
         int simulationEndTime = (int)orchestrator.getEndDate() + 10000;
         System.out.println("simulationEndTime: " + simulationEndTime);
         //// MAIN SIMULATION LOOP
-        for (int curSimTime=0; curSimTime < (simulationEndTime+10); curSimTime++) {
-            List<Request> startingRequests = orchestrator.getStartingRequests(curSimTime);
-            HashMap<Integer, ArrayList<Request>> req_mapping = orchestrator.orchestrate(startingRequests, curSimTime);
-            if (startingRequests.size() > 0) {
-                System.out.println("------Simulator timestep " + curSimTime + " -- " + startingRequests.size() + " Requests");
-                for (int i = 0; i < orchestrator.n_dcs; i++) {
-                    System.out.println("DC " + orchestrator.getDCs().get(i).getId() + " gets " + req_mapping.get(i).size() + " requests");
-                }
-            }
+        for (int curSimTime : reqStartTimes) {
+            System.out.println("Orchestrator time: " + curSimTime);
+            setTimeStepInDCs(orchestrator, curSimTime);
+            waitForDCs(orchestrator);
+            HashMap<Integer, ArrayList<Request>> req_mapping = orchestrator.orchestrate(curSimTime);
+            //if (startingRequests.size() > 0) {
+            //    System.out.println("------Simulator timestep " + curSimTime + " -- " + startingRequests.size() + " Requests");
+            //    for (int i = 0; i < orchestrator.n_dcs; i++) {
+            //        System.out.println("DC " + orchestrator.getDCs().get(i).getId() + " gets " + req_mapping.get(i).size() + " requests");
+            //    }
+            //}
             for (int i = 0; i < orchestrator.n_dcs; i++) {
                 synchronized (orchestrator.getLocks().get(i)) {
                     orchestrator.getDCs().get(i).setToEmbed(req_mapping.get(i));
@@ -285,14 +286,47 @@ public class MainWithoutGUI{
                     orchestrator.getLocks().get(i).notify();
                 }
             }
+        }
 
-            for (int i = 0; i < orchestrator.n_dcs; i++) {
-                synchronized (orchestrator.getLocks().get(i)) {
-                    while (orchestrator.getDCs().get(i).ready)
-                        orchestrator.getLocks().get(i).wait();
-                }
-            }
-        }//end of simulation
+        System.out.println("Orchestrator done w/ requests");
+
+        waitForDCs(orchestrator);
+        setTimeStepInDCs(orchestrator, simulationEndTime);
+        //end of simulation
+
+        ////for (int curSimTime : reqStartTimes) {
+        ////    for (int i = 0; i < orchestrator.n_dcs; i++) {
+        ////        orchestrator.getDCs().get(i).setOrchestratorTimestep(curSimTime);
+        ////    }
+        ////    List<Request> startingRequests = orchestrator.getStartingRequests(curSimTime);
+        ////    HashMap<Integer, ArrayList<Request>> req_mapping = null;
+        ////    while (req_mapping == null) {
+        ////        orchestrator.orchestrate(startingRequests, curSimTime);
+        ////    }
+        ////    for (int i = 0; i < orchestrator.n_dcs; i++) {
+        ////        if (!orchestrator.getDCs().get(i).ready) {
+        ////            if (orchestrator.getDCs().get(i).getNextBusyTimestep() < curSimTime) {
+        ////                orchestrator.getDCs().get(i).go();
+        ////                synchronized (orchestrator.getLocks().get(i)) {
+        ////                    orchestrator.getLocks().get(i).notify();
+        ////                }
+        ////            }
+        ////        }
+        ////        if (req_mapping.keySet().contains(i)) {
+        ////            synchronized (orchestrator.getLocks().get(i)) {
+        ////                // Tell DC to continue if it gets a new request or its next timestep is past the orchestrator's current one.
+        ////                orchestrator.getDCs().get(i).setToEmbed(req_mapping.get(i));
+        ////                orchestrator.getDCs().get(i).go();
+        ////                orchestrator.getLocks().get(i).notify();
+        ////            }
+        ////        } else if (curSimTime > orchestrator.getDCs().get(i).getDCTimeStep()) {
+        ////            synchronized (orchestrator.getLocks().get(i)) {
+        ////                orchestrator.getDCs().get(i).go();
+        ////                orchestrator.getLocks().get(i).notify();
+        ////            }
+        ////        }
+        ////    }
+        ////}
 
         for (int i = 0; i < orchestrator.n_dcs; i++) {
             synchronized (orchestrator.getLocks().get(i)) {
