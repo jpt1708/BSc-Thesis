@@ -53,7 +53,7 @@ public class Orchestrator {
     private ArrayList<SimulationNFV> DCs;
     private List<Request> requests;
     private boolean dynamic; // taken from MainWithoutGUI
-    private static int sub_nodes=0; // taken from MainWithoutGUI //// why static?
+    private static int sub_nodes=0; // taken from MainWithoutGUI
     private static double nom_cap=0; // taken from MainWithoutGUI
     public int n_dcs;
     private boolean monitoring;
@@ -62,7 +62,9 @@ public class Orchestrator {
     private List<Lock> locks;
 
     private XSSFWorkbook mainWorkbook;
-    private XSSFSheet orchSheet;
+    private XSSFSheet mapSheet;
+
+    private static String[] maincolumns = {"Time", "Request ID", "DC ID"};
 
     public Orchestrator(int numRequests, int numDCs, boolean monitoring, boolean dynamic) throws CloneNotSupportedException {
         this.monitoring = monitoring;
@@ -73,6 +75,8 @@ public class Orchestrator {
         this.DCs = new ArrayList<SimulationNFV>();
         this.locks = new ArrayList<Lock>();
         this.requests = createFG(numRequests);
+        this.mainWorkbook = new XSSFWorkbook();
+        this.mapSheet = this.mainWorkbook.createSheet("RequestMappings");
         for (int i = 0; i < numDCs; i++) {
             String algorithmID = "MILP_max";
             Lock cur_dc_lock = new Lock();
@@ -81,7 +85,9 @@ public class Orchestrator {
             SimulationNFV DCi = new SimulationNFV(
                                 InPs, nfvi, algoi,
                                 "DC_" + i + "-" + algorithmID, cur_dc_lock,
-                                this.monitoring, this.dynamic, this.getEndDate());
+                                this.monitoring, this.dynamic,
+                                this.getEndDate(), this.mainWorkbook,
+                                this.mapSheet);
             this.DCs.add(DCi);
         }
     }
@@ -114,8 +120,8 @@ public class Orchestrator {
         return this.mainWorkbook;
     }
 
-    public XSSFSheet getOrchSheet() {
-        return this.orchSheet;
+    public XSSFSheet getMapSheet() {
+        return this.mapSheet;
     }
 
     // Copied from SimulationNFV class, as requests are now handled in the Orchestrator

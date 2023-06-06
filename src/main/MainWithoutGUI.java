@@ -8,6 +8,7 @@ import java.io.OutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Writer;
+import java.sql.Time;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -18,6 +19,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.HashMap;
 import java.util.Collections;
 import java.util.Comparator;
@@ -65,8 +68,20 @@ public class MainWithoutGUI{
     static boolean monitoring=true;
     static boolean dynamic = true;
     static boolean belief=true;
+    // Data collection variables \/
+    static int totalRequested;
+    static int totalRejected;
+    static double totalRevenue;
+    static double totalCost;
+    static double totalCPUCost;
+    static double totalBWCost;
+    static double totalSolTime;
+    static int totalViolationsCPU;
+    static int totalMonInstances;
+    static int totalViolationMon;
+    static int totalCollocated;
 
-    private static String[] columns = {"Time", "Request ID", "Acceptance", "Cum Revenue", "Cum Cost",
+    private static String[] columns = {"Time", "Acceptance", "Cum Revenue", "Cum Cost",
             "Cum CPUCost", "Cum BWCos", "Avg Server Util", "Avg Link Util", "LBL Server", "LBL link",
             "Violations", "Avg Time PR", "Violation Ratio", "Rejection Ratio", "Non Collocated", "Collocated",
             "Accepted", "Rejected", "Violations Monitoring", "Monitoring Instances", "SFC Nodes", "SFC Links",
@@ -77,6 +92,15 @@ public class MainWithoutGUI{
     public static void main(String[] args) throws CloneNotSupportedException {
         int n_dcs = 3; // # of datacenters to simulate
         int numRequests = 60; // # of requests to simulate
+
+        try {
+            n_dcs = Integer.parseInt(args[0]);
+            numRequests = Integer.parseInt(args[1]);
+        } catch (Exception e) {
+            n_dcs = 3;
+            numRequests = 60;
+            System.err.println("No valid arguments, defaulting to " + n_dcs + " DCs and " + numRequests + " requests.");
+        }
 
         // Number of experiments to execute
         //int experiments=1; ////wasnt used?
@@ -238,7 +262,12 @@ public class MainWithoutGUI{
 
 
     private static double[] launchSimulation(Orchestrator orchestrator) throws Exception {
-        String workbookOutputFileName = "results/combined-outputData.xlsx";
+
+        String[] cumDataSheetColumns = {"Time", "Requests Total", "Denials Total", "Revenue Total", "Cost Total",
+            "CPU Cost Total", "BW Cost Total", "AVG Sol Time", "CPU Violations Total", "CPU Violation Ratio", "Non Collocated Total",
+            "Collocated Total", "Accepted Total", "Mon Instances Total", "Denial Ratio", "Acceptance Ratio"};
+
+        String workbookOutputFileName = "results/simulation_" + new Date().getTime() + "_" + orchestrator.getAllRequests().size() + "R_" + orchestrator.n_dcs + "DCs.xlsx";
         OutputStream workbookFileStream;
         try {
             workbookFileStream = new FileOutputStream(workbookOutputFileName);
@@ -250,7 +279,10 @@ public class MainWithoutGUI{
         //results, 0 cost, 1 time, 2, denial
         double[] results=new double[3];
 
-        ArrayList<Integer> reqStartTimes = new ArrayList<Integer>();
+        XSSFWorkbook w = orchestrator.getMainWorkbook();
+        XSSFSheet globalSheet = w.createSheet("OldMainSheet");
+        XSSFSheet cumDataSheet = w.createSheet("CumulativeDataSheet");
+        TreeSet<Integer> reqStartTimes = new TreeSet<Integer>();
         for (Request req : orchestrator.getAllRequests()) {
             reqStartTimes.add(req.getStartDate());
         }
@@ -265,13 +297,40 @@ public class MainWithoutGUI{
             cur_dc_thread.start();
         }
 
+        int rowCounter = 0;
+        int prevSimTime = -1;
+
         int simulationEndTime = (int)orchestrator.getEndDate() + 10000;
         System.out.println("simulationEndTime: " + simulationEndTime);
         //// MAIN SIMULATION LOOP
         for (int curSimTime : reqStartTimes) {
             System.out.println("Orchestrator time: " + curSimTime);
+            totalRequested = 0;
+            totalRejected = 0;
+            totalRevenue = 0;
+            totalCost = 0;
+            totalCPUCost = 0;
+            totalBWCost = 0;
+            totalSolTime = 0;
+            totalViolationsCPU = 0;
+            totalMonInstances = 0;
+            totalViolationMon = 0;
+            totalCollocated = 0;
             setTimeStepInDCs(orchestrator, curSimTime);
-            waitForDCs(orchestrator);
+            waitForDCs(orchestrator); // All DCs are now waiting, safe to pull data from them
+            for (SimulationNFV cur_dc : orchestrator.getDCs()) {
+                totalRequested += cur_dc.requested;
+                totalRejected += cur_dc.denials;
+                totalRevenue += cur_dc.revenue;
+                totalCost += cur_dc.cost;
+                totalCPUCost += cur_dc.cpuCost;
+                totalBWCost += cur_dc.bwCost;
+                totalSolTime += cur_dc.sol_time;
+                totalViolationsCPU += cur_dc.viol_cpu;
+                totalMonInstances += cur_dc.mon_instances;
+                totalViolationMon += cur_dc.viol_cpu_mon;
+                totalCollocated += cur_dc.collocated;
+            }
             HashMap<Integer, ArrayList<Request>> req_mapping = orchestrator.orchestrate(curSimTime);
             //if (startingRequests.size() > 0) {
             //    System.out.println("------Simulator timestep " + curSimTime + " -- " + startingRequests.size() + " Requests");
@@ -286,47 +345,50 @@ public class MainWithoutGUI{
                     orchestrator.getLocks().get(i).notify();
                 }
             }
+            // write data while DCs running
+            double denialRatio = (double) totalRejected / (double) totalRequested;
+            Row row = cumDataSheet.createRow(rowCounter++);
+            row.createCell(0).setCellValue(prevSimTime); //time
+            row.createCell(1).setCellValue(totalRequested); //Requests
+            row.createCell(2).setCellValue(totalRejected); //Rejected
+            row.createCell(3).setCellValue(totalRevenue); //Cum Revenue
+            row.createCell(4).setCellValue(totalCost); //Cum cost
+            row.createCell(5).setCellValue(totalCPUCost); //Cum CPU cost
+            row.createCell(6).setCellValue(totalBWCost); //Cum BW Cost
+            row.createCell(7).setCellValue(totalSolTime / (double) totalRequested); //AVG Sol Time
+            row.createCell(8).setCellValue(totalViolationsCPU); //Cum violations
+            row.createCell(9).setCellValue(totalViolationsCPU / (double) totalRequested); //Violation ratio
+            row.createCell(10).setCellValue((double)(totalRequested-totalRejected-totalCollocated)); // non-collocated
+            row.createCell(11).setCellValue((double)(totalCollocated)); //Cum collocated
+            row.createCell(12).setCellValue((double)(totalRequested-totalRejected)); // accepted
+            row.createCell(13).setCellValue(totalMonInstances); //Total Mon Instances
+            row.createCell(14).setCellValue(denialRatio); //Denial ratio
+            row.createCell(15).setCellValue(1 - denialRatio); //Acceptance ratio
+
+            prevSimTime = curSimTime;
         }
 
         System.out.println("Orchestrator done w/ requests");
+
+        Font headerFont = w.createFont(); // Setting headers for new sheet here to overwrite obsolete first row
+        headerFont.setBold(true);
+        headerFont.setFontHeightInPoints((short) 14);
+        headerFont.setColor(IndexedColors.RED.getIndex());
+
+        CellStyle headerCellStyle = w.createCellStyle();
+        headerCellStyle.setFont(headerFont);
+
+        Row headerRow = cumDataSheet.createRow(0);
+        for (int i = 0; i < cumDataSheetColumns.length; i++) {
+            Cell cell = headerRow.createCell(i);
+            cell.setCellValue(cumDataSheetColumns[i]);
+            cell.setCellStyle(headerCellStyle);
+        }
 
         waitForDCs(orchestrator);
         setTimeStepInDCs(orchestrator, simulationEndTime);
         //end of simulation
 
-        ////for (int curSimTime : reqStartTimes) {
-        ////    for (int i = 0; i < orchestrator.n_dcs; i++) {
-        ////        orchestrator.getDCs().get(i).setOrchestratorTimestep(curSimTime);
-        ////    }
-        ////    List<Request> startingRequests = orchestrator.getStartingRequests(curSimTime);
-        ////    HashMap<Integer, ArrayList<Request>> req_mapping = null;
-        ////    while (req_mapping == null) {
-        ////        orchestrator.orchestrate(startingRequests, curSimTime);
-        ////    }
-        ////    for (int i = 0; i < orchestrator.n_dcs; i++) {
-        ////        if (!orchestrator.getDCs().get(i).ready) {
-        ////            if (orchestrator.getDCs().get(i).getNextBusyTimestep() < curSimTime) {
-        ////                orchestrator.getDCs().get(i).go();
-        ////                synchronized (orchestrator.getLocks().get(i)) {
-        ////                    orchestrator.getLocks().get(i).notify();
-        ////                }
-        ////            }
-        ////        }
-        ////        if (req_mapping.keySet().contains(i)) {
-        ////            synchronized (orchestrator.getLocks().get(i)) {
-        ////                // Tell DC to continue if it gets a new request or its next timestep is past the orchestrator's current one.
-        ////                orchestrator.getDCs().get(i).setToEmbed(req_mapping.get(i));
-        ////                orchestrator.getDCs().get(i).go();
-        ////                orchestrator.getLocks().get(i).notify();
-        ////            }
-        ////        } else if (curSimTime > orchestrator.getDCs().get(i).getDCTimeStep()) {
-        ////            synchronized (orchestrator.getLocks().get(i)) {
-        ////                orchestrator.getDCs().get(i).go();
-        ////                orchestrator.getLocks().get(i).notify();
-        ////            }
-        ////        }
-        ////    }
-        ////}
 
         for (int i = 0; i < orchestrator.n_dcs; i++) {
             synchronized (orchestrator.getLocks().get(i)) {
@@ -335,8 +397,6 @@ public class MainWithoutGUI{
                 orchestrator.getLocks().get(i).notify();
             }
         }
-        XSSFWorkbook w = new XSSFWorkbook();
-        XSSFSheet globalSheet = w.createSheet("AllSheetsCombined");
         List<Row> all_rows = new ArrayList<Row>();
         try {
             System.out.println("Simulation over");
@@ -365,17 +425,9 @@ public class MainWithoutGUI{
             }
         });
 
-        Font headerFont = w.createFont();
-		headerFont.setBold(true);
-		headerFont.setFontHeightInPoints((short) 14);
-		headerFont.setColor(IndexedColors.RED.getIndex());
-
-		CellStyle headerCellStyle = w.createCellStyle();
-		headerCellStyle.setFont(headerFont);
-
-		Row headerRow = globalSheet.createRow(0);
+		Row oldSheetHeaderRow = globalSheet.createRow(0);
 		for (int i = 0; i < columns.length; i++) {
-			Cell cell = headerRow.createCell(i);
+			Cell cell = oldSheetHeaderRow.createCell(i);
 			cell.setCellValue(columns[i]);
 			cell.setCellStyle(headerCellStyle);
 		}
@@ -397,6 +449,13 @@ public class MainWithoutGUI{
                 }
             }
         }
+        String[] mapSheetColumns = {"Timestep", "Request ID", "Mapped to", "SFC Nodes", "SFC Links", "Total SFC Workload", "Total SFC Bandwidth"};
+        Row reqMapSheetRow = orchestrator.getMapSheet().createRow(0);
+        for (int i = 0; i < mapSheetColumns.length; i++) {
+            Cell c = reqMapSheetRow.createCell(i);
+            c.setCellStyle(headerCellStyle);
+            c.setCellValue(mapSheetColumns[i]);
+        }
         try {
             System.out.println("Writing global workbook to " + workbookOutputFileName);
             w.write(workbookFileStream);
@@ -417,6 +476,8 @@ public class MainWithoutGUI{
         for (SimulationNFV cur_dc : orchestrator.getDCs()) {
             cur_dc.getAlgorithm().clean();
         }
+
+        System.out.println(reqStartTimes);
 
         return results;
     }

@@ -13,7 +13,9 @@ import java.util.List;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
-import java.util.PriorityQueue;
+import java.util.TreeSet;
+
+import javax.xml.crypto.dsig.spec.XSLTTransformParameterSpec;
 
 import monitoring.Monitor;
 import model.components.Link;
@@ -55,7 +57,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 	private int timestep;
 	private int simEndTime;
 	private int orchestratorTimeStep;
-	private PrioQNoDups<Integer> busyTimemsteps;
+	private TreeSet<Integer> busyTimesteps;
 
 	private boolean monitoring;
 	private Monitor monAgent;
@@ -64,23 +66,26 @@ public class SimulationNFV implements Cloneable, Runnable {
 	private boolean dynamic;
 
 	// \/ for data collection \/
-	private double[] results=new double[3];
-	private int denials = 0;
-	private double cost=0;
-	private double cpuCost=0;
-	private double bwCost=0;
-	private double revenue=0;
-	private double cpu_util = 0;
-	private double bw_util=0;
-	private double sol_time=0;
-	private double max_util_server=0;
-	private double max_util_link=0;
-	private int requested= 0;
-	private int viol_cpu = 0;  //requests violating their SLAs
-	private int viol_cpu_mon=0; //monitoring violations
-	private int mon_instances=0; //cum  monitoring instances
-	private int collocated=0;
+	public double[] results=new double[3];
+	public int denials = 0;
+	public double cost=0;
+	public double cpuCost=0;
+	public double bwCost=0;
+	public double revenue=0;
+	public double cpu_util = 0;
+	public double bw_util=0;
+	public double sol_time=0;
+	public double max_util_server=0;
+	public double max_util_link=0;
+	public int requested= 0;
+	public int viol_cpu = 0;  //requests violating their SLAs
+	public int viol_cpu_mon=0; //monitoring violations
+	public int mon_instances=0; //cum  monitoring instances
+	public int collocated=0;
+
 	private XSSFSheet dataSheet;
+	private XSSFSheet reqMapSheet;
+	private XSSFWorkbook mainWorkbook;
 
 	private static boolean belief = true; // from MainWithoutGUI
 
@@ -93,30 +98,12 @@ public class SimulationNFV implements Cloneable, Runnable {
             "Accepted", "Rejected", "Violations Monitoring", "Monitoring Instances", "SFC Nodes", "SFC Links",
             "Total SFC Workload", "Total SFC Bandwidth"};
 
-	public class PrioQNoDups<E> extends PriorityQueue<E> {
-		@Override
-		public boolean add(E e) {
-			boolean added = false;
-			if (!super.contains(e)) {
-				added = super.add(e);
-			}
-			return added;
-		}
-
-		@Override
-		public boolean addAll(Collection<? extends E> c) {
-			boolean added = false;
-			for (E e : c) {
-				added = add(e);
-			}
-			return added;
-		}
-	}
 
 	/** Creates a new instance of Substrate */
     public SimulationNFV(Substrate InPs, List<Substrate> substrates,
         		AlgorithmNF algorithm2, String id, List<Node> NFs,
-				Object lock, boolean monitoring, boolean dynamic, int simEndTime) {
+				Object lock, boolean monitoring, boolean dynamic,
+				int simEndTime, XSSFWorkbook mainWorkbook, XSSFSheet mapSheet) {
 		this.lock = lock;
     	this.substrates = substrates;
     	this.algorithm = algorithm2;
@@ -137,15 +124,19 @@ public class SimulationNFV implements Cloneable, Runnable {
 		this.dynamic = dynamic;
 		this.simEndTime = simEndTime;
 		this.orchestratorTimeStep = 0;
-		this.busyTimemsteps = new PrioQNoDups<Integer>();
-		this.busyTimemsteps.add(0);
-		this.busyTimemsteps.add(simEndTime);
+		this.busyTimesteps = new TreeSet<Integer>();
+		this.busyTimesteps.add(0);
+		this.busyTimesteps.add(simEndTime);
+		this.dataSheet = mainWorkbook.createSheet(this.id + "-DataSheet");
+		this.reqMapSheet = mapSheet;
+		this.mainWorkbook = mainWorkbook;
     }
 
         /** Creates a new instance of Substrate */
     public SimulationNFV(Substrate InPs, List<Substrate> substrates,
         		AlgorithmNF algorithm2, String id,
-				Object lock, boolean monitoring, boolean dynamic, int simEndTime) {
+				Object lock, boolean monitoring, boolean dynamic,
+				int simEndTime, XSSFWorkbook mainWorkbook, XSSFSheet mapSheet) {
 		this.lock = lock;
     	this.substrates = substrates;
     	this.algorithm = algorithm2;
@@ -164,9 +155,12 @@ public class SimulationNFV implements Cloneable, Runnable {
 		this.dynamic = dynamic;
 		this.simEndTime = simEndTime;
 		this.orchestratorTimeStep = 0;
-		this.busyTimemsteps = new PrioQNoDups<Integer>();
-		this.busyTimemsteps.add(0);
-		this.busyTimemsteps.add(simEndTime);
+		this.busyTimesteps = new TreeSet<Integer>();
+		this.busyTimesteps.add(0);
+		this.busyTimesteps.add(simEndTime);
+		this.dataSheet = mainWorkbook.createSheet(this.id + "-DataSheet");
+		this.reqMapSheet = mapSheet;
+		this.mainWorkbook = mainWorkbook;
 
 /*    	System.out.println("id: " + substrates.get(0));
 		try {
@@ -261,14 +255,12 @@ public class SimulationNFV implements Cloneable, Runnable {
 			e.printStackTrace(System.err);
 			// TODO: handle exception
 		}
-		XSSFWorkbook workbook = new XSSFWorkbook();
-		dataSheet = workbook.createSheet("Sheet1");
-		Font headerFont = workbook.createFont();
+		Font headerFont = mainWorkbook.createFont();
 		headerFont.setBold(true);
 		headerFont.setFontHeightInPoints((short) 14);
 		headerFont.setColor(IndexedColors.RED.getIndex());
 
-		CellStyle headerCellStyle = workbook.createCellStyle();
+		CellStyle headerCellStyle = mainWorkbook.createCellStyle();
 		headerCellStyle.setFont(headerFont);
 
 		Row headerRow = dataSheet.createRow(0);
@@ -305,11 +297,10 @@ public class SimulationNFV implements Cloneable, Runnable {
 		// Data collecting set up finished
 
 		// Break when toEmbed set to null by orchestrator
-		// One iteration of this loop is one timestep in the simulation
 		while (true) {
 
 			// Sleep until Orchestrator has set requests and timestep, then wake up and do an iteration
-			if (busyTimemsteps.peek() > orchestratorTimeStep) {
+			if (busyTimesteps.first() >= orchestratorTimeStep) {
 				synchronized (lock) {
 					try {
 						while (!ready) {
@@ -320,25 +311,24 @@ public class SimulationNFV implements Cloneable, Runnable {
 					}
 				}
 			}
-			// if set to null by orchestrator, simulation is over
-			if (toEmbed == null && busyTimemsteps.peek() == simEndTime) {
+			// if set to null by orchestrator and end time has been reached, simulation is over
+			if (toEmbed == null && busyTimesteps.first() == simEndTime) {
 				System.out.println("DC " + id + " toEmbed null, break");
 				break;
 			}
-			if (toEmbed.size() > 0) {
-				for (Request r : toEmbed) {
-					busyTimemsteps.addAll(r.getTS());
-					System.out.println("busytimesteps: " + busyTimemsteps);
+			if (toEmbed != null) {
+				if (toEmbed.size() > 0) {
+					for (Request r : toEmbed) {
+						busyTimesteps.addAll(r.getTS());
+						busyTimesteps.add(r.getStartDate());
+						busyTimesteps.add(r.getEndDate());
+					}
 				}
 			}
-			timestep = busyTimemsteps.poll();
+			timestep = busyTimesteps.pollFirst();
 			if (timestep == simEndTime) {
-				busyTimemsteps.add(simEndTime);
+				busyTimesteps.add(simEndTime);
 			}
-
-			//if (toEmbed.size() > 0) {
-			//System.out.println(id + " timestep = " + timestep + ", " + toEmbed.size() + " requests");
-			//}
 
 			List<Request> endingReqs = getEndingRequests(timestep);
 			releaseRequests(endingReqs, timestep);
@@ -375,7 +365,6 @@ public class SimulationNFV implements Cloneable, Runnable {
 				Collection<Node> tmp_nodes = getSubstrates().get(0).getGraph().getVertices();
 				Iterator<Node> iterator = tmp_nodes.iterator();
 
-				// while loop
 				while (iterator.hasNext()) {
 					Node current = iterator.next();
 					if (!(current.getType().equalsIgnoreCase("Switch"))) {
@@ -398,126 +387,120 @@ public class SimulationNFV implements Cloneable, Runnable {
 				monAgent.setRequestID(currentReq);
 				monAgent.setPenalty(reward);
 			}
-
-			boolean ret = algorithm.runAlgorithm(embedded, timestep);
-			if (!ret) {
-				System.out.println("[ERROR] Algorithm in DC " + id + " failed.");
-			}
-
-			for (Request cur_req : toEmbed) {
-				currentReq = cur_req.getId();
-				//System.out.println("DC " + id + " Req " + cur_req_id + " results");
-				requested++;
-				if (cur_req.getRMapNF().isDenied()) {
-					denials++;
-				} else {
-					embedded.add(cur_req);
-					revenue += cur_req.getRMapNF().getEmbeddingRevenue();
-					cost += cur_req.getRMapNF().getEmbeddingCost();
-					cpuCost+= cur_req.getRMapNF().getCPUCost();
-					bwCost += cur_req.getRMapNF().getBWCost();
-					sol_time += cur_req.getRMapNF().getSolTime();
-					//avg_hops += req.getRMapNF().getHops();
-
-					if (cur_req.getRMapNF().getOverpCPU()) {
-						viol_cpu++;
-					}
-					if (!(cur_req.getRMapNF().getServersUsed()>1)) {
-						collocated++;
-					}
-
-					///////////////////////////////////
-					cpu_util = cur_req.getRMapNF().Node_utilization_Server_Cpu(substrates.get(0));
-					bw_util = cur_req.getRMapNF().Link_utilization(substrates.get(0));
-					max_util_server = cur_req.getRMapNF().max_util_server(substrates.get(0));
-					max_util_link =  cur_req.getRMapNF().max_link_utilization(substrates.get(0));
+			if (toEmbed != null) {
+				boolean ret = algorithm.runAlgorithm(embedded, timestep);
+				if (!ret) {
+					System.out.println("[ERROR] Algorithm in DC " + id + " failed.");
 				}
-				counter2++;
-				Row row = dataSheet.createRow(counter2);
-				row.createCell(0).setCellValue(timestep);
-				//System.out.println("Writing data in " + id + " at timestep " + timestep);
-				row.createCell(1).setCellValue(cur_req.getId());
-				row.createCell(2).setCellValue((double)(requested-denials)/(double)requested);
-				row.createCell(3).setCellValue(revenue);
-				row.createCell(4).setCellValue(cost);
-				row.createCell(5).setCellValue(cpuCost);
-				row.createCell(6).setCellValue(bwCost);
-				row.createCell(7).setCellValue(cpu_util);
-				row.createCell(8).setCellValue(bw_util);
-				row.createCell(9).setCellValue(max_util_server/cpu_util);
-				row.createCell(10).setCellValue(max_util_link/bw_util);
-				row.createCell(11).setCellValue(viol_cpu);
-				row.createCell(12).setCellValue(sol_time/(double)requested);
-				row.createCell(13).setCellValue(viol_cpu/(double)requested);
-				row.createCell(14).setCellValue((double)(denials)/(double)requested);
-				row.createCell(15).setCellValue((double)(requested-denials-collocated));
-				row.createCell(16).setCellValue((double)(collocated));
-				row.createCell(17).setCellValue((double)(requested-denials));
-				row.createCell(18).setCellValue((double)(denials));
-				row.createCell(19).setCellValue((double)viol_cpu_mon);
-				row.createCell(20).setCellValue((double)mon_instances);
-				row.createCell(21).setCellValue(cur_req.getGraph().getVertexCount());
-				row.createCell(22).setCellValue(cur_req.getGraph().getEdgeCount());
-				row.createCell(23).setCellValue((double) cur_req.getWl());
-				row.createCell(24).setCellValue((double) cur_req.getTotalBw());
+				for (Request cur_req : toEmbed) {
+					currentReq = cur_req.getId();
+					//System.out.println("DC " + id + " Req " + cur_req_id + " results");
+					requested++;
+					if (cur_req.getRMapNF().isDenied()) {
+						denials++;
+					} else {
+						embedded.add(cur_req);
+						revenue += cur_req.getRMapNF().getEmbeddingRevenue();
+						cost += cur_req.getRMapNF().getEmbeddingCost();
+						cpuCost+= cur_req.getRMapNF().getCPUCost();
+						bwCost += cur_req.getRMapNF().getBWCost();
+						sol_time += cur_req.getRMapNF().getSolTime();
+						//avg_hops += req.getRMapNF().getHops();
 
-				int cellIndex = columns.length;
-				for (Node current : substrates.get(0).getGraph().getVertices()) {
-					if (!(current.getType().equalsIgnoreCase("Switch"))) {
-						row.createCell(cellIndex).setCellValue(current.getAvailableCpu() / (double) current.getCpu());
+						if (cur_req.getRMapNF().getOverpCPU()) {
+							viol_cpu++;
+						}
+						if (!(cur_req.getRMapNF().getServersUsed()>1)) {
+							collocated++;
+						}
 
-						double life = 0;
-						double reqHosted = 0;
+						///////////////////////////////////
+						cpu_util = cur_req.getRMapNF().Node_utilization_Server_Cpu(substrates.get(0));
+						bw_util = cur_req.getRMapNF().Link_utilization(substrates.get(0));
+						max_util_server = cur_req.getRMapNF().max_util_server(substrates.get(0));
+						max_util_link =  cur_req.getRMapNF().max_link_utilization(substrates.get(0));
+					}
+					counter2++;
+					Row row = dataSheet.createRow(counter2);
+					row.createCell(0).setCellValue(timestep); //cur_req.getStartDate()
+					row.createCell(1).setCellValue(cur_req.getId());
+					row.createCell(2).setCellValue((double)(requested-denials)/(double)requested);
+					row.createCell(3).setCellValue(revenue);
+					row.createCell(4).setCellValue(cost);
+					row.createCell(5).setCellValue(cpuCost);
+					row.createCell(6).setCellValue(bwCost);
+					row.createCell(7).setCellValue(cpu_util);
+					row.createCell(8).setCellValue(bw_util);
+					row.createCell(9).setCellValue(max_util_server/cpu_util);
+					row.createCell(10).setCellValue(max_util_link/bw_util);
+					row.createCell(11).setCellValue(viol_cpu);
+					row.createCell(12).setCellValue(sol_time/(double)requested);
+					row.createCell(13).setCellValue(viol_cpu/(double)requested);
+					row.createCell(14).setCellValue((double)(denials)/(double)requested);
+					row.createCell(15).setCellValue((double)(requested-denials-collocated));
+					row.createCell(16).setCellValue((double)(collocated));
+					row.createCell(17).setCellValue((double)(requested-denials));
+					row.createCell(18).setCellValue((double)(denials));
+					row.createCell(19).setCellValue((double)viol_cpu_mon);
+					row.createCell(20).setCellValue((double)mon_instances);
+					row.createCell(21).setCellValue(cur_req.getGraph().getVertexCount());
+					row.createCell(22).setCellValue(cur_req.getGraph().getEdgeCount());
+					row.createCell(23).setCellValue((double) cur_req.getWl());
+					row.createCell(24).setCellValue((double) cur_req.getTotalBw());
+					int curReqIdInt = Integer.parseInt(currentReq.split("q")[1]) + 1; // Assumes Request IDs are in the form x + [numerical id] where x is a string ending in "q" (req34)
+					Row mapSheetRow = reqMapSheet.createRow(curReqIdInt);
+					mapSheetRow.createCell(0).setCellValue(timestep);
+					mapSheetRow.createCell(1).setCellValue(cur_req.getId());
+					mapSheetRow.createCell(2).setCellValue(id);
+					mapSheetRow.createCell(3).setCellValue(cur_req.getGraph().getVertexCount());
+					mapSheetRow.createCell(4).setCellValue(cur_req.getGraph().getEdgeCount());
+					mapSheetRow.createCell(5).setCellValue((double) cur_req.getWl());
+					mapSheetRow.createCell(6).setCellValue((double) cur_req.getTotalBw());
 
-						for (Request act : embedded) {
-							if (act.getRMapNF().containsNodeInMap(current)) {
-								life = life + (act.getEndDate() - algorithm.getTs());
-								reqHosted++;
+					int cellIndex = columns.length;
+					for (Node current : substrates.get(0).getGraph().getVertices()) {
+						if (!(current.getType().equalsIgnoreCase("Switch"))) {
+							row.createCell(cellIndex).setCellValue(current.getAvailableCpu() / (double) current.getCpu());
+
+							double life = 0;
+							double reqHosted = 0;
+
+							for (Request act : embedded) {
+								if (act.getRMapNF().containsNodeInMap(current)) {
+									life = life + (act.getEndDate() - algorithm.getTs());
+									reqHosted++;
+								}
 							}
+
+							row.createCell(cellIndex + 1).setCellValue(life / (double) reqHosted);
+
+							cellIndex += 2;
+						}
+					}
+					if (algorithm.getId().contains("RL")) {
+						try {
+							if (belief) {
+								writer.write(cur_req.getId() + "	"+ Arrays.deepToString(cur_req.getRMapNF().getQb())+"\n");
+								writer2.write(cur_req.getId() + "	"+ Arrays.deepToString(cur_req.getRMapNF().getUb())+"\n");
+							} else {
+								writer.write(cur_req.getId() + "	"+ Arrays.deepToString(cur_req.getRMapNF().getQ())+"\n");
+								writer2.write(cur_req.getId() + "	"+ Arrays.deepToString(cur_req.getRMapNF().getU())+"\n");
+							}
+						} catch (Exception e) {
+							// TODO: handle exception
 						}
 
-						row.createCell(cellIndex + 1).setCellValue(life / (double) reqHosted);
-
-						cellIndex += 2;
 					}
 				}
-				if (algorithm.getId().contains("RL")) {
-					try {
-						if (belief) {
-							writer.write(cur_req.getId() + "	"+ Arrays.deepToString(cur_req.getRMapNF().getQb())+"\n");
-							writer2.write(cur_req.getId() + "	"+ Arrays.deepToString(cur_req.getRMapNF().getUb())+"\n");
-						} else {
-							writer.write(cur_req.getId() + "	"+ Arrays.deepToString(cur_req.getRMapNF().getQ())+"\n");
-							writer2.write(cur_req.getId() + "	"+ Arrays.deepToString(cur_req.getRMapNF().getU())+"\n");
-						}
-					} catch (Exception e) {
-						// TODO: handle exception
-					}
-
-				}
+				toEmbed.clear();
 			}
-			toEmbed.clear();
-			if (busyTimemsteps.peek() > orchestratorTimeStep) {
+			if (busyTimesteps.first() >= orchestratorTimeStep) {
 				this.ready = false;
 				synchronized (lock) {
 					lock.notify();
 				}
 			}
-			System.out.println("busytimesteps l502: " + busyTimemsteps);
 		} // End of main sim loop -- for (int timestep = 0; ; timestep++) { // Break when toEmbed set to null by orchestrator
-		
-		
-		
-		try {
-			System.out.println("Writing workbook of " + id + " to " + path+File.separator+filename);
-			System.out.println(dataSheet.getPhysicalNumberOfRows() + "rows in the sheet");
-			workbook.write(fileOut);
-			workbook.close();
-			fileOut.close();
-		} catch (IOException e) {
-			System.out.println("Error writing workbook of " + id + " to file");
-			e.printStackTrace();
-		}
 	}
 
 	public XSSFSheet getDataSheet() {
@@ -525,7 +508,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 	}
 
 	public Object getCopy(int n) {
-		SimulationNFV s = new SimulationNFV(this.InPs, this.substrates, this.algorithm, this.id, this.NFs, this.lock, this.monitoring, this.dynamic, this.simEndTime);
+		SimulationNFV s = new SimulationNFV(this.InPs, this.substrates, this.algorithm, this.id, this.NFs, this.lock, this.monitoring, this.dynamic, this.simEndTime, this.mainWorkbook, this.reqMapSheet);
 		s.setId(this.getId() + "_copy_" + Integer.toString(n));
 		return s;
 	}
