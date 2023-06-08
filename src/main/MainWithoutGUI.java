@@ -80,6 +80,7 @@ public class MainWithoutGUI{
     static int totalMonInstances;
     static int totalViolationMon;
     static int totalCollocated;
+    static long startTime;
 
     private static String[] columns = {"Time", "Acceptance", "Cum Revenue", "Cum Cost",
             "Cum CPUCost", "Cum BWCos", "Avg Server Util", "Avg Link Util", "LBL Server", "LBL link",
@@ -90,6 +91,7 @@ public class MainWithoutGUI{
 
 
     public static void main(String[] args) throws CloneNotSupportedException {
+        startTime = (long) new Date().getTime();
         int n_dcs = 3; // # of datacenters to simulate
         int numRequests = 60; // # of requests to simulate
 
@@ -332,12 +334,6 @@ public class MainWithoutGUI{
                 totalCollocated += cur_dc.collocated;
             }
             HashMap<Integer, ArrayList<Request>> req_mapping = orchestrator.orchestrate(curSimTime);
-            //if (startingRequests.size() > 0) {
-            //    System.out.println("------Simulator timestep " + curSimTime + " -- " + startingRequests.size() + " Requests");
-            //    for (int i = 0; i < orchestrator.n_dcs; i++) {
-            //        System.out.println("DC " + orchestrator.getDCs().get(i).getId() + " gets " + req_mapping.get(i).size() + " requests");
-            //    }
-            //}
             for (int i = 0; i < orchestrator.n_dcs; i++) {
                 synchronized (orchestrator.getLocks().get(i)) {
                     orchestrator.getDCs().get(i).setToEmbed(req_mapping.get(i));
@@ -346,24 +342,26 @@ public class MainWithoutGUI{
                 }
             }
             // write data while DCs running
-            double denialRatio = (double) totalRejected / (double) totalRequested;
-            Row row = cumDataSheet.createRow(rowCounter++);
-            row.createCell(0).setCellValue(prevSimTime); //time
-            row.createCell(1).setCellValue(totalRequested); //Requests
-            row.createCell(2).setCellValue(totalRejected); //Rejected
-            row.createCell(3).setCellValue(totalRevenue); //Cum Revenue
-            row.createCell(4).setCellValue(totalCost); //Cum cost
-            row.createCell(5).setCellValue(totalCPUCost); //Cum CPU cost
-            row.createCell(6).setCellValue(totalBWCost); //Cum BW Cost
-            row.createCell(7).setCellValue(totalSolTime / (double) totalRequested); //AVG Sol Time
-            row.createCell(8).setCellValue(totalViolationsCPU); //Cum violations
-            row.createCell(9).setCellValue(totalViolationsCPU / (double) totalRequested); //Violation ratio
-            row.createCell(10).setCellValue((double)(totalRequested-totalRejected-totalCollocated)); // non-collocated
-            row.createCell(11).setCellValue((double)(totalCollocated)); //Cum collocated
-            row.createCell(12).setCellValue((double)(totalRequested-totalRejected)); // accepted
-            row.createCell(13).setCellValue(totalMonInstances); //Total Mon Instances
-            row.createCell(14).setCellValue(denialRatio); //Denial ratio
-            row.createCell(15).setCellValue(1 - denialRatio); //Acceptance ratio
+            if (reqStartTimes.contains(curSimTime)) {
+                double denialRatio = (double) totalRejected / (double) totalRequested;
+                Row row = cumDataSheet.createRow(rowCounter++);
+                row.createCell(0).setCellValue(prevSimTime); //time
+                row.createCell(1).setCellValue(totalRequested); //Requests
+                row.createCell(2).setCellValue(totalRejected); //Rejected
+                row.createCell(3).setCellValue(totalRevenue); //Cum Revenue
+                row.createCell(4).setCellValue(totalCost); //Cum cost
+                row.createCell(5).setCellValue(totalCPUCost); //Cum CPU cost
+                row.createCell(6).setCellValue(totalBWCost); //Cum BW Cost
+                row.createCell(7).setCellValue(totalSolTime / (double) totalRequested); //AVG Sol Time
+                row.createCell(8).setCellValue(totalViolationsCPU); //Cum violations
+                row.createCell(9).setCellValue(totalViolationsCPU / (double) totalRequested); //Violation ratio
+                row.createCell(10).setCellValue((double)(totalRequested-totalRejected-totalCollocated)); // non-collocated
+                row.createCell(11).setCellValue((double)(totalCollocated)); //Cum collocated
+                row.createCell(12).setCellValue((double)(totalRequested-totalRejected)); // accepted
+                row.createCell(13).setCellValue(totalMonInstances); //Total Mon Instances
+                row.createCell(14).setCellValue(denialRatio); //Denial ratio
+                row.createCell(15).setCellValue(1 - denialRatio); //Acceptance ratio
+            }
 
             prevSimTime = curSimTime;
         }
@@ -387,7 +385,6 @@ public class MainWithoutGUI{
 
         waitForDCs(orchestrator);
         setTimeStepInDCs(orchestrator, simulationEndTime);
-        //end of simulation
 
 
         for (int i = 0; i < orchestrator.n_dcs; i++) {
@@ -449,13 +446,16 @@ public class MainWithoutGUI{
                 }
             }
         }
-        String[] mapSheetColumns = {"Timestep", "Request ID", "Mapped to", "SFC Nodes", "SFC Links", "Total SFC Workload", "Total SFC Bandwidth"};
+        String[] mapSheetColumns = {"Timestep", "Request ID", "Mapped to", "SFC Nodes", "SFC Links", "Total SFC Workload", "Total SFC Bandwidth", "End Time", "Update Times ->"};
         Row reqMapSheetRow = orchestrator.getMapSheet().createRow(0);
         for (int i = 0; i < mapSheetColumns.length; i++) {
             Cell c = reqMapSheetRow.createCell(i);
             c.setCellStyle(headerCellStyle);
             c.setCellValue(mapSheetColumns[i]);
         }
+        // Write total runtime to sheet
+        cumDataSheet.createRow(reqStartTimes.size() + 5).createCell(4).setCellValue("Sim Runtime:");
+        cumDataSheet.createRow(reqStartTimes.size() + 5).createCell(5).setCellValue(new Date().getTime() - startTime);
         try {
             System.out.println("Writing global workbook to " + workbookOutputFileName);
             w.write(workbookFileStream);

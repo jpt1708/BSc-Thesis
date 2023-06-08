@@ -86,7 +86,7 @@ public class Orchestrator {
                                 InPs, nfvi, algoi,
                                 "DC_" + i + "-" + algorithmID, cur_dc_lock,
                                 this.monitoring, this.dynamic,
-                                this.getEndDate(), this.mainWorkbook,
+                                this.getEndDate() + 10000, this.mainWorkbook,  // endDate also set to +10000 in MainWithoutGUI
                                 this.mapSheet);
             this.DCs.add(DCi);
         }
@@ -167,9 +167,18 @@ public class Orchestrator {
             ArrayList<Request> l = new ArrayList<Request>();
             dc_map.put(i, l);
         }
-        // create mapping
+        // create mapping -- All requests go to DC w/ least embedded requests.
+        int least_requests = 1000000;
+        int dc_w_least_requests = 0;
+        for (int i = 0; i < n_dcs; i++) {
+            int embedded_i = getDCs().get(i).getEmbedded().size();
+            if (embedded_i < least_requests) {
+                least_requests = embedded_i;
+                dc_w_least_requests = i;
+            }
+        }
         for (Request req : startingRequests) {
-            dc_map.get(rand.nextInt(n_dcs)).add(req);
+            dc_map.get(dc_w_least_requests).add(req);
         }
         return dc_map;
     }
@@ -229,7 +238,6 @@ public class Orchestrator {
         return substrates;
     }
 
-
     public List<Request>  createFG(int numRequests) throws CloneNotSupportedException{
         final String prefix ="req";
         final String timeDistribution = SimulatorConstants.POISSON_DISTRIBUTION;
@@ -238,6 +246,8 @@ public class Orchestrator {
         final int uniformMax=0;
         final int normalMean=0;
         final int normalVariance=0;
+
+        Random rand = new Random(4);
 
         ArrayList<List<Request>> tmp = new ArrayList<List<Request>> ();
         final List<Request> requests = new ArrayList<Request>();
@@ -273,7 +283,14 @@ public class Orchestrator {
             request.setLinkFactory(requestSG.getLinkFactory()); // to be removed
 
             // Duration of the request
-            lifetime= exp.nextInt();
+            if (timeDistribution.equals(SimulatorConstants.POISSON_DISTRIBUTION)) {
+                lifetime = exp.nextInt();
+            } else if (timeDistribution.equals(SimulatorConstants.FIXED_DISTRIBUTION)) {
+                startDate = rand.nextInt(1000);
+                lifetime = rand.nextInt(1000) + 1000;
+            } else {
+                lifetime = 1500;
+            }
 
 /*			System.out.println("lifetime: " +lifetime);
 			try {
@@ -285,8 +302,8 @@ public class Orchestrator {
 
             // All requests start at month fixStart
             if (timeDistribution.equals(SimulatorConstants.FIXED_DISTRIBUTION)) {
-                request.setStartDate(fixStart);
-                request.setEndDate(fixStart+lifetime);
+                request.setStartDate(startDate);
+                request.setEndDate(startDate+lifetime);
             }
 
             // Random: Uniform distribution
@@ -320,7 +337,12 @@ public class Orchestrator {
             }
 
             if (dynamic) {
-                int numTS = exp_upd.nextInt();
+                int numTS;
+                if (timeDistribution.equals(SimulatorConstants.POISSON_DISTRIBUTION)) {
+                    numTS = exp_upd.nextInt();
+                } else {
+                    numTS = 5;
+                }
                 ArrayList<Integer> reqTS = new ArrayList<Integer>();
                 System.out.println(numTS + "  " +request.getStartDate() + " " +request.getEndDate());
                 for (int k=0;k<numTS;k++) {
@@ -372,3 +394,56 @@ public class Orchestrator {
 
     }
 }
+
+/*
+ResourceMappingNF reserveNodes - node 6 from -8242652 to -8243836.0
+invalid setAvailableCpu update
+ResourceMappingNF reserveNodes - node 6 from -8243836 to -8245020.0
+invalid setAvailableCpu update
+ResourceMappingNF reserveNodes - node 6 from -8245020 to -8246204.0
+invalid setAvailableCpu update
+ResourceMappingNF reserveNodes - node 6 from -8246204 to -8247092.0
+invalid setAvailableCpu update
+ResourceMappingNF reserveNodes - node 6 from -8247092 to -8262780.0
+invalid setAvailableCpu update
+ResourceMappingNF reserveNodes - node 6 from -8262780 to -8263372.0
+invalid setAvailableCpu update
+ResourceMappingNF reserveNodes - node 6 from -8263372 to -8263668.0
+invalid setAvailableCpu update
+ResourceMappingNF reserveNodes - node 6 from -8263668 to -8264260.0
+invalid setAvailableCpu update
+
+
+AlgorithmNF updateSubstrate - node 34 from 14245803 to 1.4237645E7
+invalid setAvailableCpu update
+AlgorithmNF updateSubstrate - node 34 from 14237645 to 1.4232206E7
+invalid setAvailableCpu update
+AlgorithmNF updateSubstrate - node 34 from 14232206 to 1.4226767E7
+invalid setAvailableCpu update
+AlgorithmNF updateSubstrate - node 34 from 14226767 to 1.4224048E7
+invalid setAvailableCpu update
+AlgorithmNF updateSubstrate - node 34 from 14224048 to 1.4079913E7
+invalid setAvailableCpu update
+
+ResourceMappingNF releaseNodes - node 6 from -7225892 to -7097840.0
+invalid setAvailableCpu update
+ResourceMappingNF releaseNodes - node 6 from -7097840 to -7095424.0
+invalid setAvailableCpu update
+ResourceMappingNF releaseNodes - node 6 from -7095424 to -7090592.0
+invalid setAvailableCpu update
+ResourceMappingNF releaseNodes - node 6 from -7090592 to -6962540.0
+invalid setAvailableCpu update
+ResourceMappingNF releaseNodes - node 6 from -6962540 to -6834488.0
+invalid setAvailableCpu update
+ResourceMappingNF releaseNodes - node 6 from -6834488 to -6706436.0
+invalid setAvailableCpu update
+ResourceMappingNF releaseNodes - node 6 from -6706436 to -6578384.0
+invalid setAvailableCpu update
+ResourceMappingNF releaseNodes - node 6 from -6578384 to -6450332.0
+invalid setAvailableCpu update
+ResourceMappingNF releaseNodes - node 6 from -6450332 to -6322280.0
+invalid setAvailableCpu update
+ResourceMappingNF releaseNodes - node 6 from -6322280 to -6317448.0
+invalid setAvailableCpu update
+
+*/

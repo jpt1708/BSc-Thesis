@@ -213,6 +213,10 @@ public class SimulationNFV implements Cloneable, Runnable {
 		return this.toEmbed;
 	}
 
+	public ArrayList<Request> getEmbedded() {
+		return this.embedded;
+	}
+
 	public void setToEmbed(ArrayList<Request> toEmbed) {
 		this.toEmbed = toEmbed;
 	}
@@ -227,8 +231,8 @@ public class SimulationNFV implements Cloneable, Runnable {
 
 		new File(path).mkdirs();
 		//  String filename = "input"+ orchestrator.getDCs().get(0).getAlgorithm().getId()+ "-" + "TMP" + ".xlsx";
-		String filename = "outputData-" + id + ".xlsx";
-		System.out.println(filename);
+		//String filename = "outputData-" + id + ".xlsx";
+		//System.out.println(filename);
 		if (id.contains("RL")) {
 			String filename1 = id + "_AD.txt";
 			try {
@@ -246,15 +250,15 @@ public class SimulationNFV implements Cloneable, Runnable {
 			}
 			writer2 = new NullWriter();
 		}
-		OutputStream fileOut;
-		try {
-			fileOut = new FileOutputStream(path+File.separator+filename);
-		} catch (Exception e) {
-			fileOut = new NullOutputStream();
-			System.out.println("[ERROR] Excel sheet writer for " + id + " is null");
-			e.printStackTrace(System.err);
-			// TODO: handle exception
-		}
+		//OutputStream fileOut;
+		//try {
+		//	fileOut = new FileOutputStream(path+File.separator+filename);
+		//} catch (Exception e) {
+		//	fileOut = new NullOutputStream();
+		//	System.out.println("[ERROR] Excel sheet writer for " + id + " is null");
+		//	e.printStackTrace(System.err);
+		//	// TODO: handle exception
+		//}
 		Font headerFont = mainWorkbook.createFont();
 		headerFont.setBold(true);
 		headerFont.setFontHeightInPoints((short) 14);
@@ -312,7 +316,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 				}
 			}
 			// if set to null by orchestrator and end time has been reached, simulation is over
-			if (toEmbed == null && busyTimesteps.first() == simEndTime) {
+			if (toEmbed == null) {// && busyTimesteps.first() == simEndTime) {
 				System.out.println("DC " + id + " toEmbed null, break");
 				break;
 			}
@@ -449,13 +453,18 @@ public class SimulationNFV implements Cloneable, Runnable {
 					row.createCell(24).setCellValue((double) cur_req.getTotalBw());
 					int curReqIdInt = Integer.parseInt(currentReq.split("q")[1]) + 1; // Assumes Request IDs are in the form x + [numerical id] where x is a string ending in "q" (req34)
 					Row mapSheetRow = reqMapSheet.createRow(curReqIdInt);
-					mapSheetRow.createCell(0).setCellValue(timestep);
-					mapSheetRow.createCell(1).setCellValue(cur_req.getId());
-					mapSheetRow.createCell(2).setCellValue(id);
-					mapSheetRow.createCell(3).setCellValue(cur_req.getGraph().getVertexCount());
-					mapSheetRow.createCell(4).setCellValue(cur_req.getGraph().getEdgeCount());
-					mapSheetRow.createCell(5).setCellValue((double) cur_req.getWl());
-					mapSheetRow.createCell(6).setCellValue((double) cur_req.getTotalBw());
+					int idx = 0;
+					mapSheetRow.createCell(idx++).setCellValue(timestep);
+					mapSheetRow.createCell(idx++).setCellValue(cur_req.getId());
+					mapSheetRow.createCell(idx++).setCellValue(id);
+					mapSheetRow.createCell(idx++).setCellValue(cur_req.getGraph().getVertexCount());
+					mapSheetRow.createCell(idx++).setCellValue(cur_req.getGraph().getEdgeCount());
+					mapSheetRow.createCell(idx++).setCellValue((double) cur_req.getWl());
+					mapSheetRow.createCell(idx++).setCellValue((double) cur_req.getTotalBw());
+					mapSheetRow.createCell(idx++).setCellValue(cur_req.getEndDate());
+					for (int req_ts : cur_req.getTS()) {
+						mapSheetRow.createCell(idx++).setCellValue(req_ts);
+					}
 
 					int cellIndex = columns.length;
 					for (Node current : substrates.get(0).getGraph().getVertices()) {
@@ -501,6 +510,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 				}
 			}
 		} // End of main sim loop -- for (int timestep = 0; ; timestep++) { // Break when toEmbed set to null by orchestrator
+		System.out.println(id + " out of main loop");
 	}
 
 	public XSSFSheet getDataSheet() {
