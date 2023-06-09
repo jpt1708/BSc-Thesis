@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.TreeSet;
+import java.util.Date;
 
 import javax.xml.crypto.dsig.spec.XSLTTransformParameterSpec;
 
@@ -65,6 +66,8 @@ public class SimulationNFV implements Cloneable, Runnable {
 
 	private boolean dynamic;
 
+	private long totalDCRuntime;
+
 	// \/ for data collection \/
 	public double[] results=new double[3];
 	public int denials = 0;
@@ -92,7 +95,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 	private final Object lock;
 	public boolean ready;
 
-	private static String[] columns = {"Time", "Request ID", "Acceptance", "Cum Revenue", "Cum Cost",
+	private static String[] columns = {"Time", "Request ID", "Currently Embedded", "Acceptance", "Cum Revenue", "Cum Cost",
             "Cum CPUCost", "Cum BWCos", "Avg Server Util", "Avg Link Util", "LBL Server", "LBL link",
             "Violations", "Avg Time PR", "Violation Ratio", "Rejection Ratio", "Non Collocated", "Collocated",
             "Accepted", "Rejected", "Violations Monitoring", "Monitoring Instances", "SFC Nodes", "SFC Links",
@@ -130,6 +133,8 @@ public class SimulationNFV implements Cloneable, Runnable {
 		this.dataSheet = mainWorkbook.createSheet(this.id + "-DataSheet");
 		this.reqMapSheet = mapSheet;
 		this.mainWorkbook = mainWorkbook;
+
+		this.totalDCRuntime = 0;
     }
 
         /** Creates a new instance of Substrate */
@@ -162,6 +167,8 @@ public class SimulationNFV implements Cloneable, Runnable {
 		this.reqMapSheet = mapSheet;
 		this.mainWorkbook = mainWorkbook;
 
+		this.totalDCRuntime = 0;
+
 /*    	System.out.println("id: " + substrates.get(0));
 		try {
 	        System.in.read();
@@ -185,9 +192,13 @@ public class SimulationNFV implements Cloneable, Runnable {
 		return this.timestep;
 	}
 
+	public long getTotalDCRuntime() {
+		return this.totalDCRuntime;
+	}
+
 	public List<Request> getEndingRequests(int time) {
 		List<Request> endingRequests = new ArrayList<Request>();
-		for (Request req : embedded){
+		for (Request req : this.embedded){
 			if (req.getEndDate()==time){
 				endingRequests.add(req);
 			}
@@ -217,12 +228,13 @@ public class SimulationNFV implements Cloneable, Runnable {
 		return this.embedded;
 	}
 
-	public void setToEmbed(ArrayList<Request> toEmbed) {
-		this.toEmbed = toEmbed;
+	public void setToEmbed(ArrayList<Request> incomingRequests) {
+		this.toEmbed = incomingRequests;
 	}
 
 	// Main function, run as a thread
 	public void run() {
+		long startedRunningTime = new Date().getTime();
 		// Initialize data collecting classes
 		int counter2=0;
 		Writer writer=null;
@@ -259,34 +271,6 @@ public class SimulationNFV implements Cloneable, Runnable {
 		//	e.printStackTrace(System.err);
 		//	// TODO: handle exception
 		//}
-		Font headerFont = mainWorkbook.createFont();
-		headerFont.setBold(true);
-		headerFont.setFontHeightInPoints((short) 14);
-		headerFont.setColor(IndexedColors.RED.getIndex());
-
-		CellStyle headerCellStyle = mainWorkbook.createCellStyle();
-		headerCellStyle.setFont(headerFont);
-
-		Row headerRow = dataSheet.createRow(0);
-		for (int i = 0; i < columns.length; i++) {
-			Cell cell = headerRow.createCell(i);
-			cell.setCellValue(columns[i]);
-			cell.setCellStyle(headerCellStyle);
-		}
-		int headerCellIndex = columns.length;
-
-		for (Node current : substrates.get(0).getGraph().getVertices()) {
-			if (!(current.getType().equalsIgnoreCase("Switch"))) {
-				Cell cell = headerRow.createCell(headerCellIndex);
-				cell.setCellValue("node_" + current.getId() + "_available_cpu");
-				cell.setCellStyle(headerCellStyle);
-
-				Cell cell2 = headerRow.createCell(headerCellIndex + 1);
-				cell2.setCellValue("node_" + current.getId() + "_avg_life");
-				cell2.setCellStyle(headerCellStyle);
-				headerCellIndex += 2;
-			}
-		}
 
 		// Monitoring agent
 
@@ -305,6 +289,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 
 			// Sleep until Orchestrator has set requests and timestep, then wake up and do an iteration
 			if (busyTimesteps.first() >= orchestratorTimeStep) {
+				totalDCRuntime += (new Date().getTime() - startedRunningTime);
 				synchronized (lock) {
 					try {
 						while (!ready) {
@@ -314,6 +299,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 						System.out.println("DC " + id + " interrupted");
 					}
 				}
+				startedRunningTime = new Date().getTime();
 			}
 			// if set to null by orchestrator and end time has been reached, simulation is over
 			if (toEmbed == null) {// && busyTimesteps.first() == simEndTime) {
@@ -425,38 +411,41 @@ public class SimulationNFV implements Cloneable, Runnable {
 						max_util_link =  cur_req.getRMapNF().max_link_utilization(substrates.get(0));
 					}
 					counter2++;
+					int dataSheetColCounter = 0;
 					Row row = dataSheet.createRow(counter2);
-					row.createCell(0).setCellValue(timestep); //cur_req.getStartDate()
-					row.createCell(1).setCellValue(cur_req.getId());
-					row.createCell(2).setCellValue((double)(requested-denials)/(double)requested);
-					row.createCell(3).setCellValue(revenue);
-					row.createCell(4).setCellValue(cost);
-					row.createCell(5).setCellValue(cpuCost);
-					row.createCell(6).setCellValue(bwCost);
-					row.createCell(7).setCellValue(cpu_util);
-					row.createCell(8).setCellValue(bw_util);
-					row.createCell(9).setCellValue(max_util_server/cpu_util);
-					row.createCell(10).setCellValue(max_util_link/bw_util);
-					row.createCell(11).setCellValue(viol_cpu);
-					row.createCell(12).setCellValue(sol_time/(double)requested);
-					row.createCell(13).setCellValue(viol_cpu/(double)requested);
-					row.createCell(14).setCellValue((double)(denials)/(double)requested);
-					row.createCell(15).setCellValue((double)(requested-denials-collocated));
-					row.createCell(16).setCellValue((double)(collocated));
-					row.createCell(17).setCellValue((double)(requested-denials));
-					row.createCell(18).setCellValue((double)(denials));
-					row.createCell(19).setCellValue((double)viol_cpu_mon);
-					row.createCell(20).setCellValue((double)mon_instances);
-					row.createCell(21).setCellValue(cur_req.getGraph().getVertexCount());
-					row.createCell(22).setCellValue(cur_req.getGraph().getEdgeCount());
-					row.createCell(23).setCellValue((double) cur_req.getWl());
-					row.createCell(24).setCellValue((double) cur_req.getTotalBw());
+					row.createCell(dataSheetColCounter++).setCellValue(timestep); //cur_req.getStartDate()
+					row.createCell(dataSheetColCounter++).setCellValue(cur_req.getId());
+					row.createCell(dataSheetColCounter++).setCellValue(embedded.size());
+					row.createCell(dataSheetColCounter++).setCellValue((double)(requested-denials)/(double)requested);
+					row.createCell(dataSheetColCounter++).setCellValue(revenue);
+					row.createCell(dataSheetColCounter++).setCellValue(cost);
+					row.createCell(dataSheetColCounter++).setCellValue(cpuCost);
+					row.createCell(dataSheetColCounter++).setCellValue(bwCost);
+					row.createCell(dataSheetColCounter++).setCellValue(cpu_util);
+					row.createCell(dataSheetColCounter++).setCellValue(bw_util);
+					row.createCell(dataSheetColCounter++).setCellValue(max_util_server/cpu_util);
+					row.createCell(dataSheetColCounter++).setCellValue(max_util_link/bw_util);
+					row.createCell(dataSheetColCounter++).setCellValue(viol_cpu);
+					row.createCell(dataSheetColCounter++).setCellValue(sol_time/(double)requested);
+					row.createCell(dataSheetColCounter++).setCellValue(viol_cpu/(double)requested);
+					row.createCell(dataSheetColCounter++).setCellValue((double)(denials)/(double)requested);
+					row.createCell(dataSheetColCounter++).setCellValue((double)(requested-denials-collocated));
+					row.createCell(dataSheetColCounter++).setCellValue((double)(collocated));
+					row.createCell(dataSheetColCounter++).setCellValue((double)(requested-denials));
+					row.createCell(dataSheetColCounter++).setCellValue((double)(denials));
+					row.createCell(dataSheetColCounter++).setCellValue((double)viol_cpu_mon);
+					row.createCell(dataSheetColCounter++).setCellValue((double)mon_instances);
+					row.createCell(dataSheetColCounter++).setCellValue(cur_req.getGraph().getVertexCount());
+					row.createCell(dataSheetColCounter++).setCellValue(cur_req.getGraph().getEdgeCount());
+					row.createCell(dataSheetColCounter++).setCellValue((double) cur_req.getWl());
+					row.createCell(dataSheetColCounter++).setCellValue((double) cur_req.getTotalBw());
 					int curReqIdInt = Integer.parseInt(currentReq.split("q")[1]) + 1; // Assumes Request IDs are in the form x + [numerical id] where x is a string ending in "q" (req34)
 					Row mapSheetRow = reqMapSheet.createRow(curReqIdInt);
 					int idx = 0;
 					mapSheetRow.createCell(idx++).setCellValue(timestep);
 					mapSheetRow.createCell(idx++).setCellValue(cur_req.getId());
 					mapSheetRow.createCell(idx++).setCellValue(id);
+					mapSheetRow.createCell(idx++).setCellValue(embedded.size());
 					mapSheetRow.createCell(idx++).setCellValue(cur_req.getGraph().getVertexCount());
 					mapSheetRow.createCell(idx++).setCellValue(cur_req.getGraph().getEdgeCount());
 					mapSheetRow.createCell(idx++).setCellValue((double) cur_req.getWl());
@@ -466,10 +455,9 @@ public class SimulationNFV implements Cloneable, Runnable {
 						mapSheetRow.createCell(idx++).setCellValue(req_ts);
 					}
 
-					int cellIndex = columns.length;
 					for (Node current : substrates.get(0).getGraph().getVertices()) {
 						if (!(current.getType().equalsIgnoreCase("Switch"))) {
-							row.createCell(cellIndex).setCellValue(current.getAvailableCpu() / (double) current.getCpu());
+							row.createCell(dataSheetColCounter++).setCellValue(current.getAvailableCpu() / (double) current.getCpu());
 
 							double life = 0;
 							double reqHosted = 0;
@@ -481,9 +469,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 								}
 							}
 
-							row.createCell(cellIndex + 1).setCellValue(life / (double) reqHosted);
-
-							cellIndex += 2;
+							row.createCell(dataSheetColCounter++).setCellValue(life / (double) reqHosted);
 						}
 					}
 					if (algorithm.getId().contains("RL")) {
@@ -510,7 +496,43 @@ public class SimulationNFV implements Cloneable, Runnable {
 				}
 			}
 		} // End of main sim loop -- for (int timestep = 0; ; timestep++) { // Break when toEmbed set to null by orchestrator
+		// Set headers in dataSheet
+		/*
+		Font headerFont = mainWorkbook.createFont();
+		headerFont.setBold(true);
+		headerFont.setFontHeightInPoints((short) 14);
+		headerFont.setColor(IndexedColors.RED.getIndex());
+
+		CellStyle headerCellStyle = mainWorkbook.createCellStyle();
+		headerCellStyle.setFont(headerFont);
+
+		Row headerRow = this.dataSheet.createRow(0);
+		for (int i = 0; i < columns.length; i++) {
+			Cell cell = headerRow.createCell(i);
+			cell.setCellValue(columns[i]);
+			cell.setCellStyle(headerCellStyle);
+		}
+		int headerCellIndex = columns.length;
+
+		for (Node current : substrates.get(0).getGraph().getVertices()) {
+			if (!(current.getType().equalsIgnoreCase("Switch"))) {
+				Cell cell = headerRow.createCell(headerCellIndex);
+				cell.setCellValue("node_" + current.getId() + "_available_cpu");
+				cell.setCellStyle(headerCellStyle);
+
+				Cell cell2 = headerRow.createCell(headerCellIndex + 1);
+				cell2.setCellValue("node_" + current.getId() + "_avg_life");
+				cell2.setCellStyle(headerCellStyle);
+				headerCellIndex += 2;
+			}
+		}
+		*/
+		// Write running time to dataSheet
 		System.out.println(id + " out of main loop");
+		totalDCRuntime += (new Date().getTime() - startedRunningTime);
+		Row r = dataSheet.createRow(counter2 + 2);
+		r.createCell(1).setCellValue("DC total running time:");
+		r.createCell(2).setCellValue(totalDCRuntime);
 	}
 
 	public XSSFSheet getDataSheet() {

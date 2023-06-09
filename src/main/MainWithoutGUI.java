@@ -82,11 +82,14 @@ public class MainWithoutGUI{
     static int totalCollocated;
     static long startTime;
 
-    private static String[] columns = {"Time", "Acceptance", "Cum Revenue", "Cum Cost",
-            "Cum CPUCost", "Cum BWCos", "Avg Server Util", "Avg Link Util", "LBL Server", "LBL link",
-            "Violations", "Avg Time PR", "Violation Ratio", "Rejection Ratio", "Non Collocated", "Collocated",
-            "Accepted", "Rejected", "Violations Monitoring", "Monitoring Instances", "SFC Nodes", "SFC Links",
-            "Total SFC Workload", "Total SFC Bandwidth"};
+    static long dcsruntime;
+    static long orchestrationtime;
+
+    //private static String[] columns = {"Time", "Acceptance", "Cum Revenue", "Cum Cost",
+    //        "Cum CPUCost", "Cum BWCos", "Avg Server Util", "Avg Link Util", "LBL Server", "LBL link",
+    //        "Violations", "Avg Time PR", "Violation Ratio", "Rejection Ratio", "Non Collocated", "Collocated",
+    //        "Accepted", "Rejected", "Violations Monitoring", "Monitoring Instances", "SFC Nodes", "SFC Links",
+    //        "Total SFC Workload", "Total SFC Bandwidth"};
 
 
 
@@ -275,21 +278,18 @@ public class MainWithoutGUI{
             workbookFileStream = new FileOutputStream(workbookOutputFileName);
         } catch (Exception e) {
             workbookFileStream = new NullOutputStream();
-            System.out.println("[ERROR] Excel sheet writer for orchestrator is null");
+            System.err.println("[ERROR] Excel sheet writer for orchestrator is null");
             e.printStackTrace(System.err);
         }
         //results, 0 cost, 1 time, 2, denial
         double[] results=new double[3];
 
         XSSFWorkbook w = orchestrator.getMainWorkbook();
-        XSSFSheet globalSheet = w.createSheet("OldMainSheet");
         XSSFSheet cumDataSheet = w.createSheet("CumulativeDataSheet");
         TreeSet<Integer> reqStartTimes = new TreeSet<Integer>();
         for (Request req : orchestrator.getAllRequests()) {
             reqStartTimes.add(req.getStartDate());
         }
-
-        List<XSSFSheet> dc_sheets = new ArrayList<XSSFSheet>();
 
         List<Thread> DC_threads = new ArrayList<Thread>();
         for (SimulationNFV cur_dc : orchestrator.getDCs()) {
@@ -298,6 +298,10 @@ public class MainWithoutGUI{
             System.out.println("------ Starting thread for DC " + cur_dc.getId());
             cur_dc_thread.start();
         }
+        dcsruntime = 0;
+        orchestrationtime = 0;
+        long threadsDispatchedTime = new Date().getTime();
+        long threadsSyncedTime = new Date().getTime();
 
         int rowCounter = 0;
         int prevSimTime = -1;
@@ -319,7 +323,10 @@ public class MainWithoutGUI{
             totalViolationMon = 0;
             totalCollocated = 0;
             setTimeStepInDCs(orchestrator, curSimTime);
+            orchestrationtime += (new Date().getTime() - threadsSyncedTime);
             waitForDCs(orchestrator); // All DCs are now waiting, safe to pull data from them
+            threadsSyncedTime = new Date().getTime();
+            dcsruntime += (threadsSyncedTime - threadsDispatchedTime);
             for (SimulationNFV cur_dc : orchestrator.getDCs()) {
                 totalRequested += cur_dc.requested;
                 totalRejected += cur_dc.denials;
@@ -341,6 +348,7 @@ public class MainWithoutGUI{
                     orchestrator.getLocks().get(i).notify();
                 }
             }
+            threadsDispatchedTime = new Date().getTime();
             // write data while DCs running
             if (reqStartTimes.contains(curSimTime)) {
                 double denialRatio = (double) totalRejected / (double) totalRequested;
@@ -394,11 +402,9 @@ public class MainWithoutGUI{
                 orchestrator.getLocks().get(i).notify();
             }
         }
-        List<Row> all_rows = new ArrayList<Row>();
         try {
             System.out.println("Simulation over");
             for (int i = 0; i < orchestrator.n_dcs; i++) {
-                dc_sheets.add(orchestrator.getDCs().get(i).getDataSheet());
                 System.out.println("Joining thread " + i);
                 DC_threads.get(i).join();
             }
@@ -406,47 +412,29 @@ public class MainWithoutGUI{
             System.err.println("Error joining threads:");
             e.printStackTrace(System.err);
         }
-        for (XSSFSheet s : dc_sheets) {
-            Iterator<Row> rowIter = s.rowIterator();
-            rowIter.next(); // Skip the first row, it has only title data.
-            while (rowIter.hasNext()) {
-                all_rows.add(rowIter.next());
-            }
-        }
-        Collections.sort(all_rows, new Comparator<Row>() {
-            @Override
-            public int compare(Row l, Row r) {
-                double l_time = l.getCell(0).getNumericCellValue();
-                double r_time = r.getCell(0).getNumericCellValue();
-                return l_time > r_time ? 1 : (l_time < r_time) ? -1 : 0;
-            }
-        });
 
-		Row oldSheetHeaderRow = globalSheet.createRow(0);
-		for (int i = 0; i < columns.length; i++) {
-			Cell cell = oldSheetHeaderRow.createCell(i);
-			cell.setCellValue(columns[i]);
-			cell.setCellStyle(headerCellStyle);
-		}
-        int rownum = 0;
-        for (Row r : all_rows) {
-            rownum++;
-            Row sheetRow = globalSheet.createRow(rownum);
-            for (int colnum = 0; colnum < r.getLastCellNum(); colnum++) {
-                Cell newcell = sheetRow.createCell(colnum);
-                Cell oldcell = r.getCell(colnum);
-                switch (oldcell.getCellType()) {
-                    case STRING:
-                        newcell.setCellValue(oldcell.getStringCellValue());
-                        break;
-                    case NUMERIC:
-                        newcell.setCellValue(oldcell.getNumericCellValue());
-                    default:
-                        break;
-                }
-            }
+        Row cur_row = cumDataSheet.createRow(rowCounter + 2);
+        cur_row.createCell(1).setCellValue("Total time in which at least one dc was running");
+        cur_row.createCell(2).setCellValue(dcsruntime);
+        cur_row = cumDataSheet.createRow(rowCounter + 3);
+        cur_row.createCell(1).setCellValue("Total time in which only orchestrator was running");
+        cur_row.createCell(2).setCellValue(orchestrationtime);
+        long sumofDCtimes = 0;
+        for (int i = 0; i < orchestrator.n_dcs; i++) {
+            cur_row = cumDataSheet.createRow(rowCounter + 7 + i);
+            SimulationNFV cur_dc = orchestrator.getDCs().get(i);
+            cur_row.createCell(1).setCellValue("Running time of " + cur_dc.getId());
+            cur_row.createCell(2).setCellValue(cur_dc.getTotalDCRuntime());
+            sumofDCtimes += cur_dc.getTotalDCRuntime();
         }
-        String[] mapSheetColumns = {"Timestep", "Request ID", "Mapped to", "SFC Nodes", "SFC Links", "Total SFC Workload", "Total SFC Bandwidth", "End Time", "Update Times ->"};
+        cur_row = cumDataSheet.createRow(rowCounter + 8 + orchestrator.n_dcs);
+        cur_row.createCell(1).setCellValue("Sum of DC runtimes:");
+        cur_row.createCell(2).setCellValue(sumofDCtimes);
+
+
+
+		
+        String[] mapSheetColumns = {"Timestep", "Request ID", "Mapped to", "Amt Embedded", "SFC Nodes", "SFC Links", "Total SFC Workload", "Total SFC Bandwidth", "End Time", "Update Times ->"};
         Row reqMapSheetRow = orchestrator.getMapSheet().createRow(0);
         for (int i = 0; i < mapSheetColumns.length; i++) {
             Cell c = reqMapSheetRow.createCell(i);
@@ -454,8 +442,39 @@ public class MainWithoutGUI{
             c.setCellValue(mapSheetColumns[i]);
         }
         // Write total runtime to sheet
-        cumDataSheet.createRow(reqStartTimes.size() + 5).createCell(4).setCellValue("Sim Runtime:");
-        cumDataSheet.createRow(reqStartTimes.size() + 5).createCell(5).setCellValue(new Date().getTime() - startTime);
+        cur_row = cumDataSheet.createRow(reqStartTimes.size() + 5);
+        cur_row.createCell(1).setCellValue("Sim Runtime:");
+        cur_row.createCell(2).setCellValue(new Date().getTime() - startTime);
+
+        // Set headers in DC dataSheets
+        String[] dataSheetColumns = {"Time", "Request ID", "Currently Embedded", "Acceptance", "Cum Revenue", "Cum Cost",
+            "Cum CPUCost", "Cum BWCos", "Avg Server Util", "Avg Link Util", "LBL Server", "LBL link",
+            "Violations", "Avg Time PR", "Violation Ratio", "Rejection Ratio", "Non Collocated", "Collocated",
+            "Accepted", "Rejected", "Violations Monitoring", "Monitoring Instances", "SFC Nodes", "SFC Links",
+            "Total SFC Workload", "Total SFC Bandwidth"};
+        for (SimulationNFV cur_dc : orchestrator.getDCs()) {
+            XSSFSheet curDataSheet = cur_dc.getDataSheet();
+            headerRow = curDataSheet.createRow(0);
+		    for (int i = 0; i < dataSheetColumns.length; i++) {
+		    	Cell cell = headerRow.createCell(i);
+		    	cell.setCellValue(dataSheetColumns[i]);
+		    	cell.setCellStyle(headerCellStyle);
+		    }
+		    int headerCellIndex = dataSheetColumns.length;
+
+		    for (Node current : cur_dc.getSubstrates().get(0).getGraph().getVertices()) {
+		    	if (!(current.getType().equalsIgnoreCase("Switch"))) {
+		    		Cell cell = headerRow.createCell(headerCellIndex);
+		    		cell.setCellValue("node_" + current.getId() + "_available_cpu");
+		    		cell.setCellStyle(headerCellStyle);
+
+		    		Cell cell2 = headerRow.createCell(headerCellIndex + 1);
+		    		cell2.setCellValue("node_" + current.getId() + "_avg_life");
+		    		cell2.setCellStyle(headerCellStyle);
+		    		headerCellIndex += 2;
+		    	}
+		    }
+        }
         try {
             System.out.println("Writing global workbook to " + workbookOutputFileName);
             w.write(workbookFileStream);
