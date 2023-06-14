@@ -108,9 +108,9 @@ public class MainWithoutGUI{
         }
 
         // Number of experiments to execute
-        //int experiments=1; ////wasnt used?
-        SubstrateNodeFactory.MIN_CPU_RACK = 0.1;
-        SubstrateNodeFactory.MAX_CPU_RACK = 0.2;
+        // //int experiments=1; ////wasnt used?
+        // SubstrateNodeFactory.MIN_CPU_RACK = 0.1;
+        // SubstrateNodeFactory.MAX_CPU_RACK = 0.2; // Shoudl not be here
 
         boolean monitoring = true;
         boolean dynamic = true;

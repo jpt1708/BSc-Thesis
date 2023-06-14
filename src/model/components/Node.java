@@ -357,9 +357,14 @@ public class Node implements Serializable {
 
 
 	public void setAvailableCpu(int new_availablecpu){
-		if ((new_availablecpu < this.allocated_cpu && this instanceof Server) || (this.availablecpu != 0 && new_availablecpu > this.allocated_cpu && this instanceof NF)) {
+		if ((new_availablecpu < this.allocated_cpu && this instanceof Server)) {
 		// if ((new_availablecpu < this.allocated_cpu && this instanceof Server)) {
-			System.out.println("invalid setAvailableCpu update");
+			System.out.println("invalid setAvailableCpu update first case, node id: " + this.id);
+			System.out.println("new_availablecpu: " + new_availablecpu + ", this.allocated_cpu: " + this.allocated_cpu);
+		}
+		if (this.availablecpu != 0 && new_availablecpu > this.allocated_cpu && this instanceof NF) {
+			System.out.println("invalid setAvailableCpu update second case");
+			System.out.println("new_availablecpu: " + new_availablecpu + ", this.allocated_cpu: " + this.allocated_cpu);
 		}
 
 

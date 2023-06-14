@@ -23,8 +23,8 @@ import cern.jet.random.engine.MersenneTwister;
  */
 public class SubstrateNodeFactory implements Factory<Node>, Serializable {
 
-	public static double MIN_CPU_RACK = 0.4;
-	public static double MAX_CPU_RACK = 0.7;
+	public static double MIN_CPU_RACK = 0.0;
+	public static double MAX_CPU_RACK = 1.0;
 
 
 	private int nodeCount;
@@ -79,6 +79,7 @@ public class SubstrateNodeFactory implements Factory<Node>, Serializable {
 							- SimulatorConstants.MIN_MEMORY) + 1));
 				node.setMemory(memory);
 				node.setAvailableMemory(memory);
+				System.exit(0);
 			}
 
 		
@@ -200,7 +201,7 @@ public class SubstrateNodeFactory implements Factory<Node>, Serializable {
 			int diskSpace = SimulatorConstants.RACK_SERVER_DISK;
 			((Server) node).setDiskSpace(diskSpace);
 			// Random cpu generation
-			cpu = (int) (util*SimulatorConstants.RACK_SERVER_CPU);
+			cpu = (int) (SimulatorConstants.RACK_SERVER_CPU);
 			((Server) node).setCpu(cpu);
 			((Server) node).setNominalCpu((int)SimulatorConstants.RACK_SERVER_CPU);
 			((Server) node).setAvailableCpu(cpu);

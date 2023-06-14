@@ -243,18 +243,18 @@ public class ResourceMappingNF implements Serializable {
 	public void reserveNodes(Substrate sub){
 		ArrayList<Node> reqNodes = (ArrayList<Node>) getNodes(this.request.getGraph());
 //		System.out.println(this.nodeMap);
-		for  (Node node: reqNodes){
-			 for (Node x: sub.getGraph().getVertices()){
-				 Node mappedNode=this.nodeMap.get(node);
-				 int cap=node.getAvailableCpu();
-				   if (x.getId()==mappedNode.getId()){
-					   //System.out.println(x.getId()+ " " +cap + " "+x.getAvailableCpu());
-					   double capNew= (x.getAvailableCpu()-cap);
-					   //System.out.println((int)capNew);
-					   x.setAvailableCpu((int) capNew);
+		for (Node reqNode: reqNodes){
+			for (Node subNode: sub.getGraph().getVertices()){
+				Node mappedNode=this.nodeMap.get(reqNode);
+				int cap=reqNode.getAvailableCpu();
+				if (subNode.getId()==mappedNode.getId()){
+					//System.out.println(subNode.getId()+ " " +cap + " "+subNode.getAvailableCpu());
+					double capNew= (subNode.getAvailableCpu()-cap);
+					//System.out.println((int)capNew);
+					subNode.setAvailableCpu((int) capNew);
 
-			   }
-			 }
+			   	}
+			}
 		}
 
 	}

@@ -148,24 +148,25 @@ public class AlgorithmNF {
 
 
     public boolean runAlgorithm (ArrayList<Request> active, int time){
+        System.out.println("AlgorithmNF.java 151 runAlgorithm, " + id);
         boolean retres = false;
         this.active=active;
         this.ts = time;
         if  (this.id.contains("MILP")){
             retres=NFplacement_simple();
         }
-        else if  (this.id.contentEquals("ILP")){
+        else if  (this.id.contains("ILP1")){
+            //this.ql.setThreshold(this.thr_rl);
+            retres=NFplacement_ILP1();
+
+        }
+        else if  (this.id.contains("ILP")){
             retres=NFplacement_ILP();
 
         }
         else if  (this.id.contains("RL") || this.id.contains("RA")) {
             //this.ql.setThreshold(this.thr_rl);
             retres=NFplacement_RL();
-
-        }
-        else if  (this.id.contentEquals("ILP1")){
-            //this.ql.setThreshold(this.thr_rl);
-            retres=NFplacement_ILP1();
 
         }
         else if  (this.id.contains("Greedy")){
@@ -409,6 +410,7 @@ public class AlgorithmNF {
             if (x.getId()==node.getId()){
                 // System.out.println("In reserve: " + x.getId()+ " "+x.getAvailableCpu() +" " +cap );
                 double capNew= (x.getAvailableCpu()-cap);
+                System.out.println("updating Node " + x.getId() + ": old cap: " + x.getAvailableCpu() + ", subtracting " + cap + ", new cap: " + capNew);
                 //  System.out.println((int)capNew);
                 x.setAvailableCpu((int) capNew);
                 //  if (capNew<0) System.exit(0);
@@ -2912,12 +2914,13 @@ public class AlgorithmNF {
     }
 
     private boolean NFplacement_simple() {
-
+        System.out.println("AlgorithmNF.java 2916 NFplacement_simple, " + id);
         Writer writer1=null;
         Writer writer=null;
         try {
             //log all results - substrate snapshot + request/mapping after running the algorithm
             String path = "results/"+this.id;
+            new File(path).mkdirs();
             String filename = "substrate_"+this.id+"_" +System.currentTimeMillis() + ".txt";
             long name=System.currentTimeMillis();
             writer = new BufferedWriter(new FileWriter(path+File.separator+filename));
@@ -3156,8 +3159,9 @@ public class AlgorithmNF {
                     //long solveEndTime = System.nanoTime();
                     //long solveTime = solveEndTime - solveStartTime;
                     //System.out.println("solvedOK: " + solvedOK);
-
+                    System.out.println("Printing Request " + req.getId());
                     req.print();
+                    System.out.println("cplex solvedOK = " + solvedOK);
                     if (solvedOK) {
 
                         //System.out.println("###################################");
@@ -3165,7 +3169,7 @@ public class AlgorithmNF {
                         //System.out.println( "Found an answer! CPLEX status: " + cplex.getStatus() );
                         cplex.output().println("Solution value = " + cplex.getObjValue());
                         System.out.println("###################################");
-                        //substrateCopy.print();
+                        substrateCopy.print();
 
                         //nodeMapping requested-real
                         LinkedHashMap<Node, Node> nodeMap = new LinkedHashMap<Node, Node> ();
@@ -3178,6 +3182,7 @@ public class AlgorithmNF {
                                 if (xVar[u][i] > 0.01){
                                     cpu_cost +=req_n.get(i).getAvailableCpu();
                                     nodeMap.put(req_n.get(i),subNodesList.get(u));
+                                    System.out.println("updating substrate AlgorithmNF NFplacement_simple() 3183");
                                     if (!(updateSubstrate(substrateCopy,subNodesList.get(u),req_n.get(i).getAvailableCpu())))
                                         throw new ArithmeticException("Substrate Node Capacity not updated");
                                     //System.out.println("VNF  " + i + " to node" + u +"  " +xVar[u][i]);
@@ -3229,18 +3234,18 @@ public class AlgorithmNF {
                         reqMap.setBWCost(bw_cost);
                         //req.setRMapNF(reqMap);
                         reqMap.setServersUsed(checkCollocation(nodeMap,subNodesList));
-                        //System.out.println("###############################################");
-                        //System.out.println(embedding_cost+ " " + (bw_revenue+proc_revenue) );
-                        //System.out.println(nodeMap);
-                        //System.out.println(lmap);
-                        //System.out.println("###############################################");
+                        System.out.println("###############################################");
+                        System.out.println(embedding_cost+ " " + (bw_revenue+proc_revenue) );
+                        System.out.println("nodeMap:\n" + nodeMap);
+                        System.out.println("linkMap:\n" + lmap);
+                        System.out.println("###############################################");
 
 
                         writer1.write("Node Mapping: "+ nodeMap+ "\n");
                         writer1.write("Link Mapping: "+ lmap+ "\n");
                         //System.out.println("//////////Accepted///////// "+req.getId());
                     }else{
-                        //System.out.println("Did not found an answer for Mapping");
+                        System.out.println("Did not found an answer for Mapping");
                         reqMap.denied();
                         //req.setRMapNF(reqMap);
                     }

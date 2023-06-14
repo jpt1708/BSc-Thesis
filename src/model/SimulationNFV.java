@@ -103,22 +103,23 @@ public class SimulationNFV implements Cloneable, Runnable {
 
 
 	/** Creates a new instance of Substrate */
-    public SimulationNFV(Substrate InPs, List<Substrate> substrates,
+    public SimulationNFV(Substrate InPs, Substrate nfvi_i,
         		AlgorithmNF algorithm2, String id, List<Node> NFs,
 				Object lock, boolean monitoring, boolean dynamic,
 				int simEndTime, XSSFWorkbook mainWorkbook, XSSFSheet mapSheet) {
 		this.lock = lock;
-    	this.substrates = substrates;
+    	this.substrates = new ArrayList<Substrate>();
+		this.substrates.add(nfvi_i); // Kept in a list so everything else still works (a lot of code assumes a list and does .get(0))
     	this.algorithm = algorithm2;
 		this.toEmbed = new ArrayList<Request>();
 		this.embedded = new ArrayList<Request>();
     	this.InPs = InPs;
 		this.id = id;
     	this.NFs=NFs;
-		this.algorithm.addSubstrate(substrates);
+		this.algorithm.addSubstrate(substrates); //TODO: change this to accept one substrate
 		this.algorithm.addInPs(InPs);
 		this.algorithm.addNFs(NFs);
-		this.timestep = 0; // is set by orchestrator after every step in main loop
+		this.timestep = 0;
 		this.ready = false;
 		System.out.println("DC id: " + this.id);
 		this.monAgent = new Monitor();
@@ -138,12 +139,13 @@ public class SimulationNFV implements Cloneable, Runnable {
     }
 
         /** Creates a new instance of Substrate */
-    public SimulationNFV(Substrate InPs, List<Substrate> substrates,
+    public SimulationNFV(Substrate InPs, Substrate nfvi_i,
         		AlgorithmNF algorithm2, String id,
 				Object lock, boolean monitoring, boolean dynamic,
 				int simEndTime, XSSFWorkbook mainWorkbook, XSSFSheet mapSheet) {
 		this.lock = lock;
-    	this.substrates = substrates;
+    	this.substrates = new ArrayList<Substrate>();
+		this.substrates.add(nfvi_i); // Kept in a list so everything else still works (a lot of code assumes a list and does .get(0))
     	this.algorithm = algorithm2;
 		this.toEmbed = new ArrayList<Request>();
 		this.embedded = new ArrayList<Request>();
@@ -151,7 +153,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 		this.id = id;
 		this.algorithm.addSubstrate(substrates);
 		this.algorithm.addInPs(InPs);
-		this.timestep = 0; // is set by orchestrator after every step in main loop
+		this.timestep = 0;
 		this.ready = false;
 		System.out.println("DC id: " + this.id);
 		this.monAgent = new Monitor();
@@ -309,7 +311,9 @@ public class SimulationNFV implements Cloneable, Runnable {
 			if (toEmbed != null) {
 				if (toEmbed.size() > 0) {
 					for (Request r : toEmbed) {
-						busyTimesteps.addAll(r.getTS());
+						if (dynamic) {
+							busyTimesteps.addAll(r.getTS());
+						}
 						busyTimesteps.add(r.getStartDate());
 						busyTimesteps.add(r.getEndDate());
 					}
@@ -329,21 +333,25 @@ public class SimulationNFV implements Cloneable, Runnable {
 			if (dynamic) {
 				updatedRequests = getUpdatedRequests(timestep);
 
-                        if (updatedRequests.size()>0){
-                            //System.out.println("updatedRequests: " +updatedRequests.size());
+				if (updatedRequests.size()>0){
+					//System.out.println("updatedRequests: " +updatedRequests.size());
+					releaseRequests(updatedRequests, timestep);
+					for(Request upReq: updatedRequests){
+						System.out.print("updating request " + upReq.getId() + ": ");
+						upReq.print();
+						System.out.println("Substrate:");
+						substrates.get(0).print();
+						if (!(upReq.getRMapNF().isDenied())) {
+							System.out.println("This req was NOT denied");
+							upReq.getDFG().updateGraph(upReq.getGraph(), timestep, simEndTime, false);
+						} else {
+							System.out.println("This req was denied");
+						}
+						//upReq.print();
 
-							// Never removed from embedded, so algorithm will embed them again. (I think)
-                            releaseRequests(updatedRequests, timestep);
-                            for(Request upReq: updatedRequests){
-                                //upReq.print();
-                                if (!(upReq.getRMapNF().isDenied())) {
-                                    upReq.getDFG().updateGraph(upReq.getGraph(), timestep, simEndTime, false);
-                                }
-                                //upReq.print();
-
-                            }
-                            updateRequests(updatedRequests, timestep);
-                        }
+					}
+					updateRequests(updatedRequests, timestep);
+				}
 			}
 
 			if (monitoring) {
@@ -377,11 +385,12 @@ public class SimulationNFV implements Cloneable, Runnable {
 				monAgent.setRequestID(currentReq);
 				monAgent.setPenalty(reward);
 			}
+			System.out.println(this.id + " running algorithm");
+			boolean ret = algorithm.runAlgorithm(embedded, timestep);
+			if (!ret) {
+				System.out.println("[ERROR] Algorithm in DC " + id + " failed.");
+			}
 			if (toEmbed != null) {
-				boolean ret = algorithm.runAlgorithm(embedded, timestep);
-				if (!ret) {
-					System.out.println("[ERROR] Algorithm in DC " + id + " failed.");
-				}
 				for (Request cur_req : toEmbed) {
 					currentReq = cur_req.getId();
 					//System.out.println("DC " + id + " Req " + cur_req_id + " results");
@@ -451,8 +460,10 @@ public class SimulationNFV implements Cloneable, Runnable {
 					mapSheetRow.createCell(idx++).setCellValue((double) cur_req.getWl());
 					mapSheetRow.createCell(idx++).setCellValue((double) cur_req.getTotalBw());
 					mapSheetRow.createCell(idx++).setCellValue(cur_req.getEndDate());
-					for (int req_ts : cur_req.getTS()) {
-						mapSheetRow.createCell(idx++).setCellValue(req_ts);
+					if (dynamic) {
+						for (int req_ts : cur_req.getTS()) {
+							mapSheetRow.createCell(idx++).setCellValue(req_ts);
+						}
 					}
 
 					for (Node current : substrates.get(0).getGraph().getVertices()) {
@@ -540,7 +551,7 @@ public class SimulationNFV implements Cloneable, Runnable {
 	}
 
 	public Object getCopy(int n) {
-		SimulationNFV s = new SimulationNFV(this.InPs, this.substrates, this.algorithm, this.id, this.NFs, this.lock, this.monitoring, this.dynamic, this.simEndTime, this.mainWorkbook, this.reqMapSheet);
+		SimulationNFV s = new SimulationNFV(this.InPs, this.substrates.get(0), this.algorithm, this.id, this.NFs, this.lock, this.monitoring, this.dynamic, this.simEndTime, this.mainWorkbook, this.reqMapSheet);
 		s.setId(this.getId() + "_copy_" + Integer.toString(n));
 		return s;
 	}
@@ -635,17 +646,17 @@ public class SimulationNFV implements Cloneable, Runnable {
 	/** Update resources of the requests from the substrate **/
 	public void updateRequests(List<Request> updatedRequests,int i) {
 		for (Request req : updatedRequests){
-					for (Substrate substrate: substrates){
-						//substrate.print();
-							if (!req.getRMapNF().isDenied()){
-									req.getRMapNF().reserveNodes(substrate);
-									req.getRMapNF().reserveLinks(substrate);
-									System.out.println("//////////Updated///////// "+req.getId()+ " at time "+i);
-									System.out.println();
-							}
-							//substrate.print();
-					}
+			for (Substrate substrate: substrates){
+				//substrate.print();
+				if (!req.getRMapNF().isDenied()){
+					req.getRMapNF().reserveNodes(substrate);
+					req.getRMapNF().reserveLinks(substrate);
+					System.out.println("//////////Updated///////// "+req.getId()+ " at time "+i);
+					System.out.println();
+				}
+					//substrate.print();
 			}
+		}
 	}
 	
 	

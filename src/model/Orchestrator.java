@@ -72,18 +72,18 @@ public class Orchestrator {
         this.n_dcs = numDCs;
         ArrayList<Substrate> nfvi = createSubGraph(numDCs);
         Substrate InPs = new Substrate("InPs");
-        this.DCs = new ArrayList<SimulationNFV>();
+        this.DCs = new ArrayList<SimulationNFV>(); //TODO: 
         this.locks = new ArrayList<Lock>();
         this.requests = createFG(numRequests);
         this.mainWorkbook = new XSSFWorkbook();
         this.mapSheet = this.mainWorkbook.createSheet("RequestMappings");
         for (int i = 0; i < numDCs; i++) {
-            String algorithmID = "MILP_max";
+            String algorithmID = "MILP_max_DC" + i;
             Lock cur_dc_lock = new Lock();
             locks.add(cur_dc_lock);
             AlgorithmNF algoi = new AlgorithmNF(algorithmID, nfvi.get(i));
-            SimulationNFV DCi = new SimulationNFV(
-                    InPs, nfvi, algoi,
+            SimulationNFV DCi = new SimulationNFV( // give only one DC of nfvi
+                    InPs, nfvi.get(i), algoi,
                     "DC_" + i + "-" + algorithmID, cur_dc_lock,
                     this.monitoring, this.dynamic,
                     this.getEndDate() + 10000, this.mainWorkbook, // endDate also set to +10000 in MainWithoutGUI
@@ -177,19 +177,19 @@ public class Orchestrator {
         return dc_map;
 
         // create mapping -- All requests go to DC w/ least embedded requests.
-        ////int least_requests = 1000000;
-        ////int dc_w_least_requests = 0;
-        ////for (int i = 0; i < n_dcs; i++) {
-        ////    int embedded_i = getDCs().get(i).getEmbedded().size();
-        ////    if (embedded_i < least_requests) {
-        ////        least_requests = embedded_i;
-        ////        dc_w_least_requests = i;
-        ////    }
-        ////}
-        ////for (Request req : startingRequests) {
-        ////    dc_map.get(dc_w_least_requests).add(req);
-        ////}
-        ////return dc_map;
+        //// int least_requests = 1000000;
+        //// int dc_w_least_requests = 0;
+        //// for (int i = 0; i < n_dcs; i++) {
+        //// int embedded_i = getDCs().get(i).getEmbedded().size();
+        //// if (embedded_i < least_requests) {
+        //// least_requests = embedded_i;
+        //// dc_w_least_requests = i;
+        //// }
+        //// }
+        //// for (Request req : startingRequests) {
+        //// dc_map.get(dc_w_least_requests).add(req);
+        //// }
+        //// return dc_map;
     }
 
     // Copied from MainWithoutGUI to move everything to orchestrator.
