@@ -201,7 +201,7 @@ public class SubstrateNodeFactory implements Factory<Node>, Serializable {
 			int diskSpace = SimulatorConstants.RACK_SERVER_DISK;
 			((Server) node).setDiskSpace(diskSpace);
 			// Random cpu generation
-			cpu = (int) (SimulatorConstants.RACK_SERVER_CPU);
+			cpu = (int) (util*SimulatorConstants.RACK_SERVER_CPU);
 			((Server) node).setCpu(cpu);
 			((Server) node).setNominalCpu((int)SimulatorConstants.RACK_SERVER_CPU);
 			((Server) node).setAvailableCpu(cpu);
