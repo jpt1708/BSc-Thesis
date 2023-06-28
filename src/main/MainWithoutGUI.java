@@ -113,7 +113,7 @@ public class MainWithoutGUI{
         // SubstrateNodeFactory.MAX_CPU_RACK = 0.2; // Shoudl not be here
 
         boolean monitoring = true;
-        boolean dynamic = true;
+        boolean dynamic = false;
         //Create an abstract graph where each node represent an InP
         Orchestrator orchestrator = new Orchestrator(numRequests, n_dcs, monitoring, dynamic);
 
@@ -412,6 +412,22 @@ public class MainWithoutGUI{
             System.err.println("Error joining threads:");
             e.printStackTrace(System.err);
         }
+        // Separate runtime sheet start
+        XSSFSheet runTimeSheet = w.createSheet("Running times");
+        int idx = 0;
+        Row runTimeSheetHeaders = runTimeSheet.createRow(0);
+        runTimeSheetHeaders.createCell(idx++).setCellValue("Orchestrator only runtime");
+        runTimeSheetHeaders.createCell(idx++).setCellValue("At least 1 DC running");
+        for (SimulationNFV cur_dc : orchestrator.getDCs()) {
+            runTimeSheetHeaders.createCell(idx++).setCellValue("Runtime of " + cur_dc.getId());
+        }
+        runTimeSheetHeaders.createCell(idx++).setCellValue("Sum of DC runtimes");
+        Row runTimeSheetValues = runTimeSheet.createRow(1);
+        idx = 0;
+        runTimeSheetValues.createCell(idx++).setCellValue(orchestrationtime);
+        runTimeSheetValues.createCell(idx++).setCellValue(dcsruntime);
+        // Separate runtime sheet end
+
 
         Row cur_row = cumDataSheet.createRow(rowCounter + 2);
         cur_row.createCell(1).setCellValue("Total time in which at least one dc was running");
@@ -425,11 +441,14 @@ public class MainWithoutGUI{
             SimulationNFV cur_dc = orchestrator.getDCs().get(i);
             cur_row.createCell(1).setCellValue("Running time of " + cur_dc.getId());
             cur_row.createCell(2).setCellValue(cur_dc.getTotalDCRuntime());
+            runTimeSheetValues.createCell(idx++).setCellValue(cur_dc.getTotalDCRuntime()); // Separate runtime sheet
             sumofDCtimes += cur_dc.getTotalDCRuntime();
         }
         cur_row = cumDataSheet.createRow(rowCounter + 8 + orchestrator.n_dcs);
         cur_row.createCell(1).setCellValue("Sum of DC runtimes:");
         cur_row.createCell(2).setCellValue(sumofDCtimes);
+
+        runTimeSheetValues.createCell(idx++).setCellValue(sumofDCtimes); // Separate runtime sheet
 
 
 
